@@ -1,0 +1,72 @@
+package cn.jj.controller;
+
+import java.util.Map;
+import java.util.Iterator;
+import java.util.Set;
+import cn.jj.utils.RedisUtil;
+
+/**
+ * @Description: TODO
+ * @author 汤玉林
+ * @date 2017年12月12日 下午4:29:58 
+ */
+public class Test {
+
+	int i=0;
+	RedisUtil redis=RedisUtil.getInstance();
+	public void test(){
+
+		String key="Address*";
+		//redis.delAll(key);
+		//redis.del(key);
+		Set<String> key2 = redis.key(key);
+		for (String string : key2) {
+			redis.del(string);
+			/*Map<String, String> map=redis.hgetAll(string);
+			String gradeNum=map.get("gradenum");
+			int commentNum=Integer.valueOf(gradeNum);
+			i = commentNum+i;*/
+			//System.out.println(key4.size());
+		}
+		System.out.println(i);
+		System.out.println(key2.size());
+	}
+	
+	public void test2(){
+		String key="Commentinfo*";
+		String keymission="mission-params";
+<<<<<<< .mine
+		String keyRoute="route";
+
+=======
+		redis.getJedis().flushDB();
+>>>>>>> .r1236
+		//String key="Room*";
+		Set<String> key2 = redis.key(key);
+		Long llen = redis.llen(keymission);
+		Long llen2 = redis.llen(keyRoute);
+		//redis.delAll(key);
+		//redis.del(key);
+		/*for (String string : key2) {
+			redis.del(string);
+		}*/
+		System.out.println(key2.size());
+		System.out.println(llen);
+		System.out.println(llen2);
+		//redis.getJedis().flushDB();
+	}
+	
+	/**
+	 * @Description TODO
+	 * @author 汤玉林
+	 * @date 2017年12月12日 下午4:29:58
+	 * @action main
+	 * @param args
+	 */
+	public static void main(String[] args) {
+		// TODO Auto-generated method stub
+		Test test = new Test();
+		test.test2();
+	}
+
+}

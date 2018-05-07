@@ -1,0 +1,159 @@
+package cn.jj.controller;
+
+import java.io.Serializable;
+import java.util.List;
+import java.util.Objects;
+
+import java.util.UUID;
+import org.apache.commons.lang3.StringUtils;
+import cn.jj.dao.service.RedisService;
+import cn.jj.dao.service.impl.RedisServiceImpl;
+import cn.jj.entity.Params;
+import cn.jj.entity.Scenic;
+import cn.jj.entity.data.Pictureinfo;
+import cn.jj.entity.data.Sceinfo;
+import cn.jj.entity.data.Scepriceinfo;
+import cn.jj.service.IDownLoadService;
+import cn.jj.service.IParse;
+import cn.jj.service.impl.DownLoad;
+import cn.jj.service.impl.ScenicParse;
+import cn.jj.utils.Param;
+import cn.jj.utils.RedisUtil;
+
+/**
+ * @Description: 门票爬虫入口
+ * @author 徐仁杰
+ * @date 2017年11月30日 上午9:43:59
+ */
+public class ScenicSpiderStart {
+
+	/**
+	 * 下载接口
+	 */
+	private IDownLoadService downLoad;
+
+	/**
+	 * 门票解析接口
+	 */
+	private IParse scenicParse;
+
+	/**
+	 * jav队列
+	 */
+	public static RedisUtil redis = RedisUtil.getInstance();
+	
+	//redis中存放分页链接的key
+	public static final String KEY_SCENIC = "scenic";
+	
+
+	public IParse getscenicParse() {
+		return scenicParse;
+	}
+
+	public void setscenicParse(IParse scenicParse) {
+		this.scenicParse = scenicParse;
+	}
+
+
+	public IDownLoadService getDownLoad() {
+		return downLoad;
+	}
+
+	public void setDownLoad(IDownLoadService downLoad) {
+		this.downLoad = downLoad;
+	}
+
+	public ScenicSpiderStart() {
+		super();
+	}
+
+	/**
+	 * @Description 下载详情
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午9:45:06
+	 * @action downLoadPage
+	 * @return Serializable
+	 */
+	public Serializable downLoadPage(String url) {
+		return this.downLoad.download(url);
+	}
+
+	/**
+	 * @Description 解析门票
+	 * @author 汤玉林
+	 * @date 2017年12月5日 下午2:03:37
+	 * @action parseScenic
+	 * @param scenic
+	 */
+	public void parsescenic(Scenic scenic) {
+		this.scenicParse.parse(scenic);
+	}
+
+
+	/**
+	 * @Description 启动程序
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午9:46:13
+	 * @action startRouteSpider
+	 * @return void
+	 */
+	public void startScenicSpider() {
+		while (true) {
+			Scenic scenic = (Scenic) redis.poll(KEY_SCENIC);
+			if (Objects.nonNull(scenic)) {
+				String url=scenic.getUrl();
+				String uuId=UUID.randomUUID().toString();
+				redis.set(url, uuId);
+				
+				String content ="";
+				try {
+					content = (String) downLoad.download(url);
+					if(StringUtils.isBlank(content)){
+						redis.add(KEY_SCENIC, scenic);
+						continue;
+					}
+				} catch (Exception e) {
+					System.out.println(url);
+					redis.add(KEY_SCENIC, scenic);
+					continue;
+				}
+				scenic.setId(uuId);
+				scenic.setContent(content);
+				//解析门票详情
+				try {
+					this.parsescenic(scenic);
+				} catch (Exception e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+					redis.add(KEY_SCENIC, scenic);
+					continue;
+				}
+			}else {
+				try {
+					System.out.println("没有链接了");
+					Thread.sleep(20000);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+
+	/**
+	 * @see 1、设置下载实现类
+	 * @see 2、设置解析实现类
+	 * @see 3、设置缓存队列
+	 * @Description 启动示例
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午9:45:59
+	 * @action main
+	 * @return void
+	 */
+	public static void main(String[] args) {
+		ScenicSpiderStart spiderStart = new ScenicSpiderStart();
+		spiderStart.setDownLoad(new DownLoad());
+		spiderStart.setscenicParse(new ScenicParse());
+		spiderStart.startScenicSpider();
+	}
+}

@@ -1,0 +1,324 @@
+package cn.jj.utils;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpHost;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
+
+import cn.jj.Config;
+import redis.clients.jedis.Jedis;
+
+public class PageDownLoadUtil {
+
+	private static RedisUtil redisUtil = RedisUtil.getInstance();
+
+	/**
+	 * @Description 发送get请求
+	 * @author 徐仁杰
+	 * @date 2017年11月24日 上午9:19:13
+	 * @action httpClientGet
+	 * @return String
+	 */
+	public static String httpClientGet(String url, Map<?, ?>... maps) {
+		CloseableHttpClient httpClient = HttpClients.createDefault();
+		StringBuffer key = new StringBuffer();
+		try {
+			HttpGet get = new HttpGet(url);
+			/******************* 设置代理IP ******************/
+			RequestConfig config = getRequestConfig(key);
+			/******************* 设置代理IP ******************/
+			get.setConfig(config);
+			setGetHeaders(get, maps);
+			CloseableHttpResponse response = httpClient.execute(get);
+			HttpEntity entity = response.getEntity();
+			String result = EntityUtils.toString(entity);
+			return result;
+		} catch (Exception e) {
+			e.printStackTrace();
+			redisUtil.del(key.toString());
+			return null;
+		} finally {
+			try {
+				httpClient.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+
+	/**
+	 * @Description 本地连接get
+	 * @author 徐仁杰
+	 * @date 2017年12月13日 下午4:58:09
+	 * @action httpClientDefultGet
+	 * @return String
+	 */
+	public static String httpClientDefultGet(String url, Map<?, ?>... maps) {
+		CloseableHttpClient httpClient = HttpClients.createDefault();
+		StringBuffer key = new StringBuffer();
+		try {
+			HttpGet get = new HttpGet(url);
+			setGetHeaders(get, maps);
+			CloseableHttpResponse response = httpClient.execute(get);
+			HttpEntity entity = response.getEntity();
+			String result = EntityUtils.toString(entity);
+			return result;
+		} catch (Exception e) {
+			redisUtil.del(key.toString());
+			return null;
+		} finally {
+			try {
+				httpClient.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+	/**
+	 * @Description 代理ip链接post 参数为json
+	 * @author 赵乐
+	 * @date 2017年12月13日 下午4:58:09
+	 * @action httpClientDefultGet
+	 * @return String
+	 */
+	public static String sendPost(String url, String param, Map<?,?>...maps) {
+		StringBuffer key = new StringBuffer();
+		PrintWriter out = null;
+		BufferedReader in = null;
+		String result = "";
+		URLConnection conn= null;
+		try {
+			URL realUrl = new URL(url);
+			// 打开和URL之间的连接
+			String proxyIpPort = getProxyIpPort(key);
+			if (StringUtils.isNotBlank(proxyIpPort)) {
+				String replace = proxyIpPort.replace(Config.PROXY_IP_REDIS_KEY, "");
+				String[] arr = replace.split(":");
+				String proxy_ip = arr[0];
+				int proxy_port = Integer.parseInt(arr[1]);
+				InetSocketAddress addr = new InetSocketAddress(proxy_ip,proxy_port);  
+				Proxy proxy = new Proxy(Proxy.Type.HTTP, addr);
+				conn = realUrl.openConnection(proxy);
+			}else{
+				conn = realUrl.openConnection();
+			}
+			// 设置通用的请求属性
+			conn.setRequestProperty("accept", "*/*");
+			conn.setRequestProperty("connection", "Keep-Alive");
+			conn.setRequestProperty("user-agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36"
+					+ " (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36");
+			conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+			conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.8");
+			for (Map<?, ?> map : maps) {
+				Iterator<?> iterator=map.keySet().iterator();
+				while (iterator.hasNext()) {
+					String next = (String) iterator.next();
+					String object = (String) map.get(next);
+					conn.setRequestProperty(next, object);
+				}
+			}
+			// 发送POST请求必须设置如下两行
+			conn.setDoOutput(true);
+			conn.setDoInput(true);
+			// 获取URLConnection对象对应的输出流
+			out = new PrintWriter(conn.getOutputStream());
+			// 发送请求参数
+			out.print(param);
+			// flush输出流的缓冲
+			out.flush();
+			// 定义BufferedReader输入流来读取URL的响应
+			in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+			String line;
+			while ((line = in.readLine()) != null) {
+				result += line;
+			}
+		} catch (Exception e) {
+			//System.out.println("发送 POST 请求出现异常！" + e);
+			//System.out.println(url + "\n" + param);
+			//e.printStackTrace();
+			return result;
+		}
+		// 使用finally块来关闭输出流、输入流
+		finally {
+			try {
+				if (out != null) {
+					out.close();
+				}
+				if (in != null) {
+					in.close();
+				}
+			} catch (IOException ex) {
+				//ex.printStackTrace();
+			}
+		}
+		return result;
+	}
+
+
+
+	/**
+	 * @Description 发送post请求
+	 * @author 徐仁杰
+	 * @date 2017年12月13日 下午2:56:20
+	 * @action post
+	 * @return String
+	 */
+	public static String post(String url, String param, Map<?, ?>... maps) {
+		CloseableHttpClient httpClient = HttpClients.createDefault();
+		StringBuffer key = new StringBuffer();
+		try {
+			HttpPost post = new HttpPost(url);
+			/******************* 设置代理IP ******************/
+			RequestConfig config = getRequestConfig(key);
+			/******************* 设置代理IP ******************/
+			post.setConfig(config);
+			setPostHeaders(post, maps);
+			StringEntity stringEntity = new StringEntity(param, "UTF-8");
+			post.setEntity(stringEntity);
+			CloseableHttpResponse response = httpClient.execute(post);
+			HttpEntity entity = response.getEntity();
+			String result = EntityUtils.toString(entity);
+			return result;
+		} catch (Exception e) {
+			redisUtil.del(key.toString());
+		} finally {
+			try {
+				httpClient.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * @Description 获取httpclient上下文
+	 * @author 徐仁杰
+	 * @date 2017年12月13日 下午2:11:18
+	 * @action getRequestConfig
+	 * @return RequestConfig
+	 */
+	public static RequestConfig getRequestConfig(StringBuffer key) {
+		String proxyIpPort = getProxyIpPort(key);
+		RequestConfig config = RequestConfig.custom().setConnectionRequestTimeout(5000).setConnectTimeout(5000)
+				.setSocketTimeout(2000).build();
+		if (StringUtils.isNotBlank(proxyIpPort)) {
+			String replace = proxyIpPort.replace(Config.PROXY_IP_REDIS_KEY, "");
+			String[] arr = replace.split(":");
+			String proxy_ip = arr[0];
+			int proxy_port = Integer.parseInt(arr[1]);
+			HttpHost proxy = new HttpHost(proxy_ip, proxy_port);
+			config = RequestConfig.custom().setProxy(proxy).setConnectTimeout(5000).setSocketTimeout(5000).build();
+		}
+		return config;
+	}
+
+	/**
+	 * @Description 获取代理IP
+	 * @author 徐仁杰
+	 * @date 2017年12月15日 上午11:38:53
+	 * @action getProxyIpPort
+	 * @return String
+	 */
+	public static String getProxyIpPort(StringBuffer key) {
+		Jedis jedis = redisUtil.getJedis();
+		Set<String> keys = jedis.keys(Config.PROXY_IP_REDIS_KEY + "*");
+		jedis.close();
+		String ip_port = null;
+		List<String> list = new ArrayList<>();
+		for (String string : keys) {
+			list.add(string);
+		}
+		for (int i = 0; i < list.size();) {
+			ip_port = list.get(NumUtils.getRandom(list.size(), 0));
+			break;
+		}
+		return ip_port;
+	}
+
+	/**
+	 * @Description 设置get请求头部信息
+	 * @author 徐仁杰
+	 * @date 2017年12月13日 下午3:16:36
+	 * @action setGetHeaders
+	 * @return void
+	 */
+	public static void setGetHeaders(HttpGet get, Map<?, ?>... maps) {
+		get.setHeader("User-Agent", HeadersUtils.getUserAgent());
+		for (Map<?, ?> map : maps) {
+			Iterator<?> iterator = map.keySet().iterator();
+			while (iterator.hasNext()) {
+				String next = (String) iterator.next();
+				String object = (String) map.get(next);
+				get.setHeader(next, object);
+			}
+		}
+	}
+
+	/**
+	 * @Description 设置post请求头部信息
+	 * @author 徐仁杰
+	 * @date 2017年12月13日 下午3:16:36
+	 * @action setGetHeaders
+	 * @return void
+	 */
+	public static void setPostHeaders(HttpPost post, Map<?, ?>... maps) {
+		post.setHeader("User-Agent", HeadersUtils.getUserAgent());
+		for (Map<?, ?> map : maps) {
+			Iterator<?> iterator = map.keySet().iterator();
+			while (iterator.hasNext()) {
+				String next = (String) iterator.next();
+				String object = (String) map.get(next);
+				post.setHeader(next, object);
+			}
+		}
+	}
+
+	public static void main(String[] args) throws Exception {
+
+		//System.out.println(httpClientGet("https://www.baidu.com/"));
+		String url="https://gny.ly.com/list?src=%E4%B8%89%E4%BA%9A&dest=%E4%B8%8A%E6%B5%B7";
+		//String param="ProductID=15743310&StartCity=559&SalesCity=559";
+		
+		Map<String,String> header=new HashMap<String, String>();
+		header.put("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36");
+		//header.put("X-Requested-With", "XMLHttpRequest");
+		//header.put("Referer", "https://gny.ly.com/line/t1j3p97597c321.html?pos=8");
+		header.put("Cookie", "td_sid=MTUxNDI1NDk2NyxkOGFlZTdlNTZlNTI0NTY4NjlkYWRlNGQxNjA5YmVlYjNmNjlmNDEwNjU5OTdhOTYxNDVkYTQ5M2QwMmQ5NGEyLDA5MzI4YmRkZTIyZTc1MzYwM2Q3ZDg0MjlkMjQ1YzcwYWIzNzQ2ZmUwYmNjZDY1NjNlYThkMjQ4NWFjMWI1ZjQ=;td_did=a05e9zLkro%2BL9Km2ROphe1RzfRT3Fu9Y8rW4pRygVMKiHu41TBJ8djcWo3np%2BIpGmHtNm9TH0zlsgG0ElDlTW7j9lLTUTbALVzOFCr7ALewz9pRgTtLlOekoNpMfY87ciHeNIzAkUeQ09%2BGr3wcSITqmdd7bY5u52DwhwiUddx3wHjTjoB%2F04E6RTl7fEx3VycjgO0uCFFqxhJUIhe6H3kIYbJgQPJJzFNTCqHwKDPhuiSobneai9Xhslp0j%2Bwac;");
+		//td_sid=MTUxNDE4NDc2NCwzOTJlNDJmZTgxZjE2MjYyZDZlYTA0YTA4ZDMyZTY1YmUxZWYwYWM3YTA2NzFlOWJjYTE4ZTcxMjI3ZmZlZmZjLDA1OWI1ZDdhNjY0MzgzZTRkYjljYjAzNGU0NTY3N2RkY2MwNjVjNTQyZjdjNzQ3MzJlMjdmYTlmYjczNzE4ZmQ=; 
+		//td_did=a05e9zLkro%2BL9Km2ROphe1RzfRT3Fu9Y8rW4pRygVMKiHu41TBJ8djcWo3np%2BIpGmHtNm9TH0zlsgG0ElDlTW7j9lLTUTbALVzOFCr7ALewz9pRgTtLlOekoNpMfY87ciHeNIzAkUeQ09%2BGr3wcSITqmdd7bY5u52DwhwiUddx3wHjTjoB%2F04E6RTl7fEx3VPziz%2Fs2s14PGpIb5Wr6MlYbaEZPiOKVT0%2FLKB6SPwk9pHNeCT9eTK18M76pftzAs; 
+
+		String str =sendPost(url,"ProductId=97597&depId=321&AdultNum=2&ChildNum=0", header);
+		//String str =httpClientGet(url, header);
+
+		//String str =sendPost(url,"ProductId=97597&depId=321&DepCityName=%E4%B8%8A%E6%B5%B7&AdultNum=2&ChildNum=0", header);
+		
+		String urlss="https://gny.ly.com/fetch/index/getCommentList?productId=76675&projectId=11&page=1&pageSize=10";
+		String httpClientGet = httpClientGet(urlss);
+		
+		System.out.println(httpClientGet);
+
+	}
+}

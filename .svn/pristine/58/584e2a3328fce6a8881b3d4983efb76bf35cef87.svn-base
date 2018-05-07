@@ -1,0 +1,377 @@
+package cn.jj.flight.service.impl;
+
+import java.io.Serializable;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import cn.jj.dao.service.RedisService;
+import cn.jj.dao.service.impl.RedisServiceImpl;
+import cn.jj.entity.data.Flightinfo;
+import cn.jj.entity.data.Flightinputinfo;
+import cn.jj.entity.data.Flightpriceinfo;
+import cn.jj.flight.entity.Flight;
+import cn.jj.flight.entity.Transferinfo;
+import cn.jj.service.IParse;
+import cn.jj.utils.RedisUtil;
+
+public class FlightParse implements IParse {
+	private RedisService redisService = new RedisServiceImpl();
+	//redis队列
+	public static RedisUtil redis = RedisUtil.getInstance();
+	
+	//redis中存放航班的信息
+	public static final String KEY_FLIGHT = "flight";
+	
+
+	@Override
+	public void parse(Serializable ser) {
+		try {
+			Flight flight = (Flight) ser;
+			if (flight.getPageUrl().startsWith("http://flight.lvmama.com/booking")) {
+				getLvmamaFlightinfo(flight);
+			} else if (flight.getPageUrl().startsWith("http://flight-api.tuniu.com/open/flight")) {
+				getTuniuFlightinfo(flight);
+			}else if(flight.getPageUrl().startsWith("https://flight.qunar.com/site/oneway_list.htm")){
+				getQunaerFlightinfo(flight);
+			}else if (flight.getPageUrl().startsWith("http://flights.ctrip.com/domesticsearch/search/SearchFirstRouteFlights")){
+				getCtripFlightinfo(flight);
+			}else if(flight.getPageUrl().startsWith("http://m.ly.com/flightnew/json/firstflightlist.html")){
+				getTongchengFlightinfo(flight);
+			}else{
+				System.out.println("沒有符合要求的url");
+			}
+		} catch (Exception e) {
+
+		}
+
+	}
+
+	/**
+	 * 
+	 * @Description 解析驴妈妈航班信息
+	 * @author xdl
+	 * @date 2017年12月26日 下午5:55:09
+	 * @action getLvmamaFlightinfo
+	 * @return void
+	 */
+	public void getLvmamaFlightinfo(Flight flight) {
+		try {
+			// 得到输入数据
+			Flightinputinfo flightinputinfo = flight.getFlightinputinfo();
+			// 存入redis
+			redisService.insertAndGetId(flightinputinfo);
+
+			Flightinfo flightinfo = new Flightinfo();
+			String flightDateData = flight.getFlightDate();
+			String beginCityCode = flight.getBeginCity();
+			String endCityCode = flight.getEndCity();
+			String flightno = flight.getFlightinfo().getFlightno();
+			// 得到json
+			String json = flight.getContent();
+			if(json.startsWith("<!DOCTYPE html>")){
+				//如果出现这样情况，就说明页面已经被重定向了，把flight扔回队列中
+				System.err.println("返回数据不是json，重新放回队列");
+				redis.add(KEY_FLIGHT, flight);
+			}else{
+				//正常情况
+				JSONObject jsonData = null;
+				try {
+					jsonData = new JSONObject(json);
+				} catch (Exception e) {
+					redis.add(KEY_FLIGHT, flight);
+					System.out.println("返回数据出错!");
+				}
+				if(jsonData != null){
+					// 解析json,得到想要的数据
+					// 爬取飞行出发日期(已经有)
+					flightinfo.setFlightdate(flightDateData);
+					// 爬取飞行到达日期
+					String arriveDateData = jsonData.getString("arrivalTimeFull").split(" ")[0];
+					flightinfo.setFlightarrivedate(arriveDateData);
+					// 爬取飞机型号
+					String planeTypeData = "";
+					try {
+						if (!jsonData.get("airplaneType").equals(null)) {
+							planeTypeData = jsonData.get("airplaneType").toString();
+						}
+					} catch (Exception e) {
+						
+					}
+					flightinfo.setPlane(planeTypeData);
+					// 爬取飞行城市(已经有)
+					flightinfo.setBegincity(beginCityCode);
+					// 爬取到达城市(已经有)
+					flightinfo.setEndcity(endCityCode);
+					// 爬取出发时间
+					String beginTimeData = jsonData.getString("departureTimeFull").split(" ")[1];
+					flightinfo.setBegintime(beginTimeData);
+					// 爬取到达时间
+					String endTimeData = jsonData.getString("arrivalTimeFull").split(" ")[1];
+					flightinfo.setEndtime(endTimeData);
+					// 爬取实际用时
+					String realCostTimeData = jsonData.getString("flyTime");
+					flightinfo.setRealcosttime(realCostTimeData);
+					// 爬取飞行状态
+					// 爬取最低票价
+					String lowestPrice = String.valueOf(jsonData.getInt("flightMinParPrice"));
+					flightinfo.setLowestprice(lowestPrice);
+					// 爬取飞行时间
+					// 爬取出发航站楼
+					String beginTerminalData = jsonData.getString("departureAirportName")
+							+ jsonData.getString("departureTermainalBuilding");
+					flightinfo.setBeginterminal(beginTerminalData);
+					// 爬取抵达航站楼
+					String endTerminalData = jsonData.getString("arrivalAirportName")
+							+ jsonData.getString("arrivalTerminalBuilding");
+					flightinfo.setEndterminal(endTerminalData);
+					// 爬取出发机场代码
+					String beginCode = jsonData.getString("departureAirportCode");
+					flightinfo.setBegincode(beginCode);
+					// 爬取到达机场代码
+					String endCode = jsonData.getString("arrivalAirportCode");
+					flightinfo.setEndcode(endCode);
+					// 爬取飞机尺寸
+					String str1 = jsonData.get("airplaneModel").toString();
+					JSONObject object1 = new JSONObject(str1);
+					String sizeData = object1.getString("airplaneType") + "型";
+					flightinfo.setSize(sizeData);
+					// 爬取经停(本网站不显示经停城市,只显示有没有经停,只爬取是否经停)
+					String stopData = String.valueOf(jsonData.getInt("stopCount"));
+					flightinfo.setStop(stopData);
+					// 封装其他参数
+					flightinfo.setInputid(flightinputinfo.getId());
+					String flightinfoId = UUID.randomUUID().toString();
+					flightinfo.setId(flightinfoId);
+					flightinfo.setFlightno(flightno);
+					flightinfo.setCreator("xiedalei");
+					flightinfo.setCreatorid("xiedalei-15255178580");
+					flightinfo.setCreatedate(new Date());
+					flightinfo.setDatasource("Lvmama");
+
+					System.out.println("航班数据获取成功！航班号:" + flightno);
+					redisService.insertAndGetId(flightinfo);
+					// 定义机票价格的集合
+					List<Flightpriceinfo> priceList = new LinkedList<>();
+					JSONArray jArray = (JSONArray) jsonData.get("allSeats");
+					for (int k = 0; k < jArray.length(); k++) {
+						// 定义机票价格实体类
+						Flightpriceinfo flightpriceinfo = new Flightpriceinfo();
+						// 开始爬取
+						// 爬取
+						// 航班id
+						flightpriceinfo.setFlightid(flightinfoId);
+						// 航班号
+						flightpriceinfo.setFlightno(flightno);
+						// 爬取仓位类别
+						JSONObject priceJson = jArray.getJSONObject(k);
+						String classTypeData = priceJson.getString("seatClassName");
+						flightpriceinfo.setClasstype(classTypeData);
+						// 爬取身份类别
+						String identityTypeData = "成人";
+						flightpriceinfo.setIdentitytype(identityTypeData);
+						// 爬取价格
+						String priceData = String.valueOf(priceJson.getInt("showPrice"));
+						flightpriceinfo.setPrice(priceData);
+						// 爬取折扣
+						String discountData = String.valueOf(priceJson.getDouble("discount")) + "折";
+						flightpriceinfo.setDiscount(discountData);
+						// 爬取基建费
+						// 爬取燃油费
+						// 爬取备注
+						// 封装其他信息
+						String flightpriceinfoId = UUID.randomUUID().toString();
+						flightpriceinfo.setId(flightpriceinfoId);
+						flightpriceinfo.setFlightdate(flightDateData);
+						flightpriceinfo.setDatasource("Lvmama");
+						flightpriceinfo.setCreator("xiedalei");
+						flightpriceinfo.setCreatorid("xiedalei-15255178580");
+						flightpriceinfo.setCreatedate(new Date());
+						redisService.insertAndGetId(flightpriceinfo);
+					}
+				}
+				
+			}
+			
+		} catch (Exception e) {
+			redis.add(KEY_FLIGHT, flight);
+		}
+
+	}
+
+	/**
+	 * 
+	 * @Description 途牛航班信息的解析
+	 * @author 谢大磊
+	 * @date 2017年12月27日 下午5:26:36
+	 * @action getTuniuFlightinfo
+	 * @return void
+	 */
+	public void getTuniuFlightinfo(Flight flight) {
+		String content = flight.getContent();
+		Flightinfo flightinfo = flight.getFlightinfo();
+		Flightinputinfo flightinputinfo = flight.getFlightinputinfo();
+		redisService.insertAndGetId(flightinfo);
+		redisService.insertAndGetId(flightinputinfo);
+		
+		String pricedata = content.substring(content.indexOf("(") + 1, content.length() - 2);
+		JSONObject flightpricedata = new JSONObject(pricedata);
+		JSONObject airBasic = flightpricedata.getJSONObject("data").getJSONObject("airBasic")
+				.getJSONObject("cabinClassMap");
+		// 仓位数组
+
+		Iterator iterator = airBasic.keys();
+		Map map = new HashMap();
+		while (iterator.hasNext()) {
+			String key = (String) iterator.next();
+			JSONObject value = airBasic.getJSONObject(key);
+			int ketsize = key.length();
+			key = key.substring(ketsize - 1, ketsize);
+			map.put(key, value.getString("majorType"));
+		}
+		JSONArray scs = flightpricedata.getJSONObject("data").getJSONArray("voyGroups");
+		// 价格数组
+
+		// 价格表
+		try {
+			for (int j = 0; j < scs.length(); j++) {
+				JSONArray category = scs.getJSONObject(j).getJSONArray("category");
+				// 优惠类型
+				for (int k = 0; k < category.length(); k++) {
+
+					JSONArray cabinPrices = category.getJSONObject(k).getJSONArray("cabinPrices");
+					// 仓位
+					for (int i = 0; i < cabinPrices.length(); i++) {
+						
+
+						JSONArray travelers = cabinPrices.getJSONObject(i).getJSONArray("travelers");
+						if (travelers != null && travelers.length() > 0) {
+							// 乘客类型
+							for (int q = 0; q < travelers.length(); q++) {
+								Flightpriceinfo priceinfo = new Flightpriceinfo();
+								// 价格
+								int price = (int) travelers.getJSONObject(q).get("salePrice");
+								priceinfo.setPrice(Integer.toString(price));
+								// 折扣
+								Object priceDiscount = travelers.getJSONObject(q).get("discount");
+								if (!priceDiscount.equals("") && priceDiscount != null && !priceDiscount.equals("null")) {
+									priceinfo.setDiscount(priceDiscount.toString());
+								}
+
+								// 机建费
+								int tax = (int) travelers.getJSONObject(q).get("tax");
+								priceinfo.setOilfee(Integer.toString(tax));
+								// 燃油费
+								int fuel = (int) travelers.getJSONObject(q).get("fuel");
+								priceinfo.setConstructionfee(Integer.toString(fuel));
+								// 航班号
+								priceinfo.setFlightno(flightinfo.getFlightno());
+								// 航班日期
+								priceinfo.setFlightdate(flightinfo.getFlightdate());
+
+								// 得到身份类别
+								String psgType = (String) travelers.getJSONObject(q).get("psgType");
+								if ("ADT".equals(psgType)) {
+									priceinfo.setIdentitytype("成人");
+								} else if ("CHD".equals(psgType)) {
+									priceinfo.setIdentitytype("儿童");
+								}else{
+									priceinfo.setIdentitytype("婴儿");
+								}
+
+								// 舱位类别
+								JSONArray fareBinds = travelers.getJSONObject(q).getJSONArray("fareBinds");
+								String fare = fareBinds.getString(0);
+								JSONArray voySegCabins = cabinPrices.getJSONObject(i).getJSONObject("fareInfoMap")
+										.getJSONObject(fare).getJSONArray("voySegCabins");
+								if (voySegCabins != null && voySegCabins.length() > 0) {
+									JSONArray segCabins = voySegCabins.getJSONObject(0).getJSONArray("segCabins");
+									if (segCabins != null && segCabins.length() > 0) {
+										String cabinClass = (String) segCabins.getJSONObject(0).get("cabinClass");
+										String classtype = (String) map.get(cabinClass);
+										priceinfo.setClasstype(classtype);
+									}
+
+								}
+
+								String flightpriceinfoId = UUID.randomUUID().toString();
+								priceinfo.setId(flightpriceinfoId);
+								priceinfo.setFlightid(flightinfo.getId());
+								priceinfo.setCreatedate(new Date());
+								priceinfo.setDatasource("Tuniu");
+								priceinfo.setCreator("陈文奇");
+								priceinfo.setCreatorid("chenwenqi-13263625152");
+								System.out.println(flightinfo.getFlightno()+"价格信息获取完毕！");
+								redisService.insertAndGetId(priceinfo);
+							}
+
+						}
+
+					}
+
+				}
+			}
+		} catch (Exception e) {
+			
+			
+		}
+	}
+	/**
+	 * 
+	 * @Description 得到去哪儿机票信息
+	 * @author 谢大磊
+	 * @date 2017年12月29日 上午8:32:30
+	 * @action getQunaerFlightinfo
+	 * @return void
+	 */
+	public void getQunaerFlightinfo(Flight flight){
+		redisService.insertAndGetId(flight.getFlightinfo());
+		System.out.println(flight.getFlightinfo().getFlightno()+"信息获取成功！");
+		redisService.insertAndGetId(flight.getFlightinputinfo());
+		redisService.insertBatch(flight.getFlightpriceinfoList());
+	}
+	/**
+	 * 
+	 * @Description 携程机票信息的获取
+	 * @author 谢大磊
+	 * @date 2017年12月29日 上午10:51:46
+	 * @action getCtripFlightinfo
+	 * @return void
+	 */
+	public void getCtripFlightinfo(Flight flight){
+		redisService.insertAndGetId(flight.getFlightinputinfo());
+		redisService.insertAndGetId(flight.getFlightinfo());
+		List<Transferinfo> transferInfoList = flight.getFlighttransferList();
+		for (Transferinfo transferinfo : transferInfoList) {
+			redisService.insertAndGetId(transferinfo.getBeginFlightinfo());
+			redisService.insertAndGetId(transferinfo.getEndFlightinfo());
+			redisService.insertAndGetId(transferinfo.getFlighttransferinfo());
+		}
+		
+		redisService.insertBatch(flight.getFlightpriceinfoList());
+		System.out.println(flight.getFlightinfo().getFlightdate()+"携程"+flight.getFlightinfo().getFlightno()+"航班信息获取完毕!");
+	}
+	/**
+	 * 
+	 * @Description 同程机票信息获取
+	 * @author xdl
+	 * @date 2017年12月29日 下午3:54:53
+	 * @action getTongchengFlightinfo
+	 * @return void
+	 */
+	public void getTongchengFlightinfo(Flight flight){
+		redisService.insertAndGetId(flight.getFlightinputinfo());
+		redisService.insertAndGetId(flight.getFlightinfo());
+		System.out.println(flight.getFlightinfo().getFlightno()+"信息获取成功！");
+		redisService.insertBatch(flight.getFlightpriceinfoList());
+	}
+}

@@ -1,0 +1,229 @@
+package cn.jj.utils;
+
+/**
+ * @Description: Params对象type属性枚举类用于区分url请求类型
+ * @author 徐仁杰
+ * @date 2017年12月7日 下午2:59:13
+ */
+public enum Param {
+
+	/**
+	 * 驴妈妈门票评论枚举类
+	 */
+	LVMAMA_SCENIC_COMMENT,
+	
+	/**
+	 * 驴妈妈景点评论url枚举类型
+	 */
+	LVMAMA_STROKE_COMMENTURL,
+	/**
+	 * 驴妈妈景点评论枚举类型
+	 */
+	LVMAMA_STROKE_COMMENT,
+	/**
+	 * 驴妈妈想去人数和去过人数枚举类
+	 */
+	LVMAMA_STROKE_WANTANDBEEN,
+	/**
+	 * 驴妈妈酒店房型价格枚举类
+	 */
+	LVMAMA_HOTEL_ROOM,
+	/**
+	 * 驴妈妈酒店评论枚举类
+	 */
+	LVMAMA_HOTEL_COMMENT,
+	/**
+	 * 驴妈妈门票详情枚举类
+	 */
+	LVMAMA_SCENIC_DETAIL,
+	/**
+	 * 驴妈妈行程价格枚举类
+	 */
+	LVMAMA_ROUTE_PRICE,
+	/**
+	 * 驴妈妈行程评论枚举类
+	 */
+	LVMAMA_ROUTE_COMMENT,
+	/**
+	 * 携程酒店房型枚举类
+	 */
+	CTRIP_HOTEL_ROOM,
+	/**
+	 * 携程门票图片枚举类
+	 */
+	CTRIP_SCENIC_PICTURE,
+	/**
+	 * 携程门票评论枚举类
+	 */
+	CTRIP_SCENIC_COMMENT,
+	/**
+	 * 携程想去人数和去过人数枚举类
+	 */
+	CTRIP_STROKE_WANTANDBEEN,
+	/**
+	 * 携程景点评论枚举类
+	 */
+	CTRIP_STROKE_COMMENT,
+	/**
+	 * 携程行程评论第一页url
+	 */
+	CTRIP_ROUTE_COMMENT_FIRST,
+	/**
+	 * 携程行程价格枚举类
+	 */
+	CTRIP_ROUTE_PRICE,
+	/**
+	 * 携程行程出发城市枚举类
+	 */
+	CTRIP_ROUTE_DEPARTURE,
+	/**
+	 * 携程行程费用和预定须知枚举类
+	 */
+	CTRIP_ROUTE_EXPENSEANDRESERVEINFO,
+	/**
+	 * 携程行程评论枚举类
+	 */
+	CTRIP_ROUTE_COMMENT,
+	/**
+	 * 途牛景点评论枚举类
+	 */
+	TUNIU_STROKE_COMMENT,
+	/**
+	 * 途牛酒店图片
+	 */
+	TUNIU_HOTEL_PICTURE,
+	/**
+	 * 途牛酒店房型床型枚举类
+	 */
+	TUNIU_HOTEL_ROOM,
+	/**
+	 * 途牛酒店评论首页枚举类
+	 */
+	TUNIU_HOTEL_COMMENT_FIRST,
+	/**
+	 * 途牛酒店评论枚举类
+	 */
+	TUNIU_HOTEL_COMMENT,
+	/**
+	 * 途牛门票评论枚举类
+	 */
+	TUNIU_SCENIC_COMMENT, 
+	/**
+	 * 途牛行程价格枚举类
+	 */
+	TUNIU_ROUTE_PRICE, 
+	/**
+	 * 途牛行程评论枚举类
+	 */
+	TUNIU_ROUTE_COMMENT,
+	
+	/**
+	 * 同程酒店房型床型枚举类
+	 */
+	TONGCHENG_HOTEL_ROOM,
+	/**
+	 * 同程酒店评论枚举类
+	 */
+	TONGCHENG_HOTEL_COMMENT, 
+	/**
+	 * 同城景点评论首页链接枚举类
+	 */
+	TONGCHENG_STROKE_COMMENT_FIRST,
+	/**
+	 * 同城景点评论链接枚举类
+	 */
+	TONGCHENG_STROKE_COMMENT,
+	/**
+	 * 同程门票价格链接枚举类
+	 */
+	TONGCHENG_SCENIC_PRICE, 
+	/**
+	 * 同程门票评论第一页
+	 */
+	TONGCHENG_SCENIC_COMMENT_FIRST,
+	/**
+	 * 同程门票评论url枚举类
+	 */
+	TONGCHENG_SCENIC_COMMENT, 
+	/**
+	 * 同城行程价格链接枚举类
+	 */
+	TONGCHENG_ROUTE_PRICE,
+	/**
+	 * 同城行程第一页评论链接枚举类
+	 */
+	TONGCHENG_ROUTE_COMMENT_FIRST,
+	/**
+	 * 同城行程评论链接枚举类
+	 */
+	TONGCHENG_ROUTE_COMMENT,
+	/**
+	 * 去哪儿评论链接枚举类
+	 */
+	QUNAER_STROKE_COMMENT,
+	/**
+	 * 去哪儿门票评论链接枚举类
+	 */
+	QUNAER_SCENIC_COMMENT, 
+	/**
+	 * 去哪儿行程价格链接枚举类
+	 */
+	QUNAER_ROUTE_PRICE, 
+	/**
+	 * 去哪儿行程评论第一页链接枚举类
+	 */
+	QUNAER_ROUTE_COMMENT_FIRST, 
+	/**
+	 * 去哪儿行程评论链接枚举类
+	 */
+	QUNAER_ROUTE_COMMENT,
+	/**
+	 * 去哪儿酒店房型链接枚举类
+	 */
+	QUNAER_HOTEL_ROOM, 
+	/**
+	 * 去哪儿酒店详情介绍链接枚举类
+	 */
+	QUNAER_HOTEL_INTRODUCTION,
+	/**
+	 * 去哪儿酒店图片链接枚举类
+	 */
+	QUNAER_HOTEL_PICTURE, 
+	/**
+	 * 去哪儿酒店评论链接枚举类
+	 */
+	QUNAER_HOTEL_COMMENT, 
+	/**
+	 * 去哪儿酒店房间价格链接枚举类
+	 */
+	QUNAER_HOTEL_ROOM_PRICE,
+	/**
+	 * get请求类型
+	 */
+	GET,
+	/**
+	 * post请求类型
+	 */
+	POST,
+	/**
+	 * 携程
+	 */
+	CTRIP,
+	/**
+	 * 驴妈妈
+	 */
+	LVMAMA,
+	/**
+	 * 途牛
+	 */
+	TUNIU,
+	/**
+	 * 同程
+	 */
+	TONGCHENG,
+	/**
+	 * 去哪儿
+	 */
+	QUNAER,
+
+}

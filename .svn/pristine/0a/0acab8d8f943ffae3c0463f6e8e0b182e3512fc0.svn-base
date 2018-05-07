@@ -1,0 +1,11 @@
+#phtomjs安装路径
+driver.PhantomjsDriver=C:\\Users\\Public\\work\\javaSpace\\phantomjs-2.0.0-windows\\bin\\phantomjs.exe
+#redis配置
+redis.MaxIdle=100
+redis.MaxTotal=300
+redis.MaxWaitMillis=10000
+redis.TestOnBorrow=true
+redis.ip=192.168.0.125
+redis.port=6379
+#代理IP在redis中存储的key
+proxy.ip.redis.key=proxy.138.

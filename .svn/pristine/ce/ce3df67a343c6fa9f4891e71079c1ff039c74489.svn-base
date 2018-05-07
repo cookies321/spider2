@@ -1,0 +1,152 @@
+package cn.jj.flight.controller;
+
+import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+import org.apache.commons.lang3.StringUtils;
+
+import cn.jj.controller.HotelSpiderStart;
+import cn.jj.entity.Hotel;
+import cn.jj.flight.entity.Flight;
+import cn.jj.flight.service.impl.FlightDownload;
+import cn.jj.flight.service.impl.FlightParse;
+import cn.jj.service.IDownLoadService;
+import cn.jj.service.IParse;
+import cn.jj.service.impl.DownLoad;
+import cn.jj.service.impl.HotelParse;
+import cn.jj.utils.RedisUtil;
+
+/**
+ * 
+ * @Description:机票爬虫入口 
+ * @author 谢大磊
+ * @date 2017年12月26日 下午3:43:50
+ */
+public class FlightSpriderStart {
+	//下载接口
+	public IDownLoadService download;
+	//机票解析接口
+	public IParse flightParse;
+	
+	//redis队列
+	public static RedisUtil redis = RedisUtil.getInstance();
+	
+	//redis中存放航班的信息
+	public static final String KEY_FLIGHT = "flight";
+	
+	
+	public IDownLoadService getDownload() {
+		return download;
+	}
+
+
+	public void setDownload(IDownLoadService download) {
+		this.download = download;
+	}
+
+
+	public IParse getFlightParse() {
+		return flightParse;
+	}
+
+
+	public void setFlightParse(IParse flightParse) {
+		this.flightParse = flightParse;
+	}
+	
+	/**
+	 * @Description 下载url页面
+	 * @author 谢大磊
+	 * @date 2017年12月5日 下午1:55:44
+	 * @action downLoadPage
+	 * @param url
+	 * @return
+	 */
+	public Serializable downLoadPage(String url) {
+		return this.download.download(url);
+	}
+	/**
+	 * @Description 解析机票
+	 * @author 谢大磊
+	 * @date 2017年12月5日 下午1:55:22
+	 * @action parseHotel
+	 * @param flight
+	 */
+	public void parseFlight(Flight flight) {
+		this.flightParse.parse(flight);
+	}
+	/**
+	 * @Description 启动程序
+	 * @author 谢大磊
+	 * @date 2017年11月30日 上午9:46:13
+	 * @action startRouteSpider
+	 * @return void
+	 */
+	public void startFlightSpider() {
+		for(int i=0;i<=10;i++){
+			new Thread(new Runnable() {
+				
+				@Override
+				public void run() {
+					// TODO Auto-generated method stub
+					while (true) {
+						try {
+							Flight flight = (Flight) redis.poll(KEY_FLIGHT);
+							if (Objects.nonNull(flight)) {
+								String url = flight.getUrl();
+								// 详情下载
+								String content ="";
+								try {
+									Map<String,String> map = new HashMap<>();
+									content = (String) download.download(url,map);
+									if("OK".equals(content)){
+										content = flight.getContent();
+									}
+									if(StringUtils.isBlank(content)){
+										redis.add(KEY_FLIGHT, flight);
+										continue;
+									}
+								} catch (Exception e) {
+									redis.add(KEY_FLIGHT, flight);
+									continue;
+								}
+								flight.setContent(content);	
+								try {
+									parseFlight(flight);
+								} catch (Exception e1) {
+									// TODO Auto-generated catch block
+									e1.printStackTrace();
+									redis.add(KEY_FLIGHT, flight);
+									continue;
+								}
+							} else {
+								try {
+									System.out.println("沒有链接");
+									Thread.sleep(2000);
+								} catch (InterruptedException e) {
+									// TODO Auto-generated catch block
+									e.printStackTrace();
+								}
+							}
+						} catch (Exception e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+					}
+					
+				}
+			}).start();
+		}
+	}
+	public static void main(String[] args) {
+		FlightSpriderStart spiderStart = new FlightSpriderStart();
+		spiderStart.setDownload(new FlightDownload());
+		spiderStart.setFlightParse(new FlightParse());
+		spiderStart.startFlightSpider();
+
+	}
+
+}

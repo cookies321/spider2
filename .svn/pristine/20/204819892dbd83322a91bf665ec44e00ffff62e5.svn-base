@@ -1,0 +1,466 @@
+package cn.jj.utils;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+import cn.jj.Config;
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
+import redis.clients.jedis.Pipeline;
+import redis.clients.jedis.Response;
+
+/**
+ * 操作redis数据库的工具类 Created by dajiangtai
+ *
+ */
+public class RedisUtil {
+
+	private static JedisPool jedisPool = null;
+
+	private static RedisUtil redisUtil;
+	
+	private static RedisUtil redisUtil2;
+
+	/**
+	 * 构造方法
+	 */
+	private RedisUtil() {
+		// jedisPool = new JedisPool(poolConfig, "192.168.0.150", 6379);
+		JedisPoolConfig poolConfig = new JedisPoolConfig();
+		poolConfig.setMaxIdle(Config.REDIS_MAX_IDLE);
+		poolConfig.setMaxTotal(Config.REDIS_MAX_TOTAL);
+		poolConfig.setMaxWaitMillis(Config.REDIS_MAX_WAIT_MILLS);
+		poolConfig.setTestOnBorrow(Config.REDIS_TEST_ON_BORROW);
+		//jedisPool = new JedisPool(poolConfig, Config.REDIS_IP, Config.REDIS_PORT);
+		jedisPool = new JedisPool(poolConfig, Config.REDIS_IP,  Config.REDIS_PORT, 2000, null,1);
+
+	}
+
+	public static RedisUtil getInstance() {
+		if (redisUtil == null) {
+			synchronized ((RedisUtil.class)) {
+				redisUtil = new RedisUtil();
+			}
+		}
+		return redisUtil;
+	}
+	
+	
+	private RedisUtil(int dataSource) {
+		// jedisPool = new JedisPool(poolConfig, "192.168.0.150", 6379);
+		JedisPoolConfig poolConfig = new JedisPoolConfig();
+		poolConfig.setMaxIdle(Config.REDIS_MAX_IDLE);
+		poolConfig.setMaxTotal(Config.REDIS_MAX_TOTAL);
+		poolConfig.setMaxWaitMillis(Config.REDIS_MAX_WAIT_MILLS);
+		poolConfig.setTestOnBorrow(Config.REDIS_TEST_ON_BORROW);
+		//jedisPool = new JedisPool(poolConfig, Config.REDIS_IP, Config.REDIS_PORT);
+		jedisPool = new JedisPool(poolConfig, Config.REDIS_IP,  Config.REDIS_PORT, 2000, null, dataSource);
+
+	}
+	
+	
+	public static RedisUtil getInstance(int dataSource){
+		if(redisUtil2==null){
+			synchronized ((RedisUtil.class)) {
+				redisUtil2 = new RedisUtil(dataSource);
+			}
+		}
+		return redisUtil2;
+	}
+
+	/**
+	 * @Description 查询
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午10:05:31
+	 * @action lrange
+	 * @return List<String>
+	 */
+	public List<String> lrange(String key, int start, int end) {
+		List<String> list=new ArrayList<>();
+		Jedis resource =null;
+		try {
+			resource = jedisPool.getResource();
+			list = resource.lrange(key, start, end);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(resource!=null){
+				resource.close();
+			}
+		}
+		
+		return list;
+
+	}
+	
+	
+
+	/**
+	 * @Description 添加list
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午10:05:22
+	 * @action add
+	 * @return void
+	 */
+	public void add(String Key, String url) {
+		Jedis resource = null;
+		try {
+			resource = jedisPool.getResource();
+			resource.lpush(Key, url);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(resource!=null){
+				resource.close();
+			}
+		}
+		
+	}
+
+	/**
+	 * 
+	 * @Description 添加序列化对象进入list
+	 * @author 汤玉林
+	 * @date 2017年12月8日 下午2:26:13
+	 * @action add
+	 * @param Key
+	 * @param obj
+	 */
+	public void add(String Key, Object obj) {
+		Jedis resource = null;
+		try {
+			resource = jedisPool.getResource();
+			byte[] serialize = this.serialize(obj);
+			resource.lpush(Key.getBytes(), serialize);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(resource!=null){
+				resource.close();
+			}
+		}
+		
+	}
+
+	/**
+	 * @Description list中获取
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午10:05:03
+	 * @action poll
+	 * @return String
+	 */
+	public Object poll(String key) {
+		Object unserizlize=null;
+		Jedis resource =null;
+		try {
+			resource = jedisPool.getResource();
+			
+			byte[] rpop = resource.rpop(key.getBytes());
+			unserizlize = null;
+			if (Objects.nonNull(rpop)) {
+				unserizlize = this.unserizlize(rpop);
+			}
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(resource!=null){
+				resource.close();
+			}
+		}
+		return unserizlize;
+	}
+	
+	/**
+	 * 
+	 * @Description 获取list的长度
+	 * @author 汤玉林
+	 * @date 2017年12月29日 上午11:21:13
+	 * @action llen
+	 * @param key
+	 * @return
+	 */
+	public Long llen(String key) {
+		Long rpop=null;
+		Jedis resource =null;
+		try {
+			resource = jedisPool.getResource();
+			rpop = resource.llen(key);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(resource!=null){
+				resource.close();
+			}
+		}
+		return rpop;
+	}
+
+
+	/**
+	 * @Description 添加set
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午10:04:57
+	 * @action addSet
+	 * @return void
+	 */
+	public void addSet(String Key, String value) {
+		Jedis resource =null;
+		try {
+			resource = jedisPool.getResource();
+			resource.sadd(Key, value);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(resource!=null){
+				resource.close();
+			}
+		}
+		
+	}
+
+	/**
+	 * @Description 随机获取Set 值
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午10:04:50
+	 * @action getSet
+	 * @return String
+	 */
+	public String getSet(String key) {
+		String value="";
+		Jedis resource =null;
+		try {
+			resource = jedisPool.getResource();
+			value = resource.srandmember(key);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(resource!=null){
+				resource.close();
+			}
+		}
+		
+		return value;
+	}
+
+	/**
+	 * @Description 删除Set 随机值
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午10:04:42
+	 * @action deleteSet
+	 * @return void
+	 */
+	public void deleteSet(String key, String value) {
+		Jedis resource=null;
+		try {
+			resource = jedisPool.getResource();
+			resource.srem(key, value);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(resource!=null){
+				resource.close();
+			}
+		}
+	}
+
+	/**
+	 * @Description 序列化
+	 * @author 徐仁杰
+	 * @date 2017年11月17日 上午10:46:19
+	 * @action serialize
+	 * @return byte[]
+	 */
+	public byte[] serialize(Object obj) {
+		ObjectOutputStream obi = null;
+		ByteArrayOutputStream bai = null;
+		try {
+			bai = new ByteArrayOutputStream();
+			obi = new ObjectOutputStream(bai);
+			obi.writeObject(obj);
+			byte[] byt = bai.toByteArray();
+			return byt;
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return null;
+	}
+
+	/**
+	 * @Description 反序列化
+	 * @author 徐仁杰
+	 * @date 2017年11月17日 上午10:46:27
+	 * @action unserizlize
+	 * @return Object
+	 */
+	public Object unserizlize(byte[] byt) {
+		ObjectInputStream oii = null;
+		ByteArrayInputStream bis = null;
+		bis = new ByteArrayInputStream(byt);
+		try {
+			oii = new ObjectInputStream(bis);
+			Object obj = oii.readObject();
+			return obj;
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return null;
+	}
+
+	/**
+	 * @Description 哈希结构单个序列化对象存储
+	 * @author 徐仁杰
+	 * @date 2017年11月21日 上午9:55:56
+	 * @action hset
+	 * @return long
+	 */
+	public long hset(byte[] hkey, byte[] key, Object obj) {
+		Long hset=null;
+		Jedis jedis =null;
+		try {
+			jedis = jedisPool.getResource();
+			byte[] serialize = this.serialize(obj);
+			hset = jedis.hset(hkey, key, serialize);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(jedis!=null){
+				jedis.close();
+			}
+		}
+		return hset;
+	}
+
+	// redis查询接口
+	public Set<String> key(String regx) {
+		Set<String> keys=new HashSet<>();
+		Jedis jedis =null;
+		try {
+			jedis = jedisPool.getResource();
+			keys = jedis.keys(regx);
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(jedis!=null){
+				jedis.close();
+			}
+		}
+		return keys;
+	}
+
+	// 根据key删除单条记录
+	public long del(String key) {
+		Long result =null;
+		Jedis jedis =null;
+		try {
+			jedis = jedisPool.getResource();
+			
+			Boolean exists = jedis.exists(key);
+			if(exists){
+				result = jedis.del(key);
+			}else{
+				result=(long) 0;
+			}
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(jedis!=null){
+				jedis.close();
+			}
+		}
+		return result;
+		
+	}
+
+	// 删除所有
+	public void delAll() {
+		Jedis jedis=null;
+		try {
+			jedis = jedisPool.getResource();
+			jedis.flushAll();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}finally{
+			if(jedis!=null){
+				jedis.close();
+			}
+		}
+	}
+
+	/**
+	 * 
+	 * @Description 管道插入
+	 * @author 汤玉林
+	 * @date 2018年1月24日 下午2:38:23
+	 * @action hmset
+	 * @param key
+	 * @param map
+	 * @return
+	 */
+	public String hmset(String key, Map<String, String> map) {
+		Jedis resource = jedisPool.getResource();
+		Pipeline pip=resource.pipelined();
+		Response<String> hmset = pip.hmset(key, map);
+		pip.sync();// 调用syn会关闭管道，所以在调用syn之后就不可以在使用管道了
+		jedisPool.returnResourceObject(resource);
+		return hmset.get();
+	}
+
+	// 根据key查询出包含对象信息的map
+	public Map<String, String> hgetAll(String key) {
+		Jedis jedis = jedisPool.getResource();
+		Map<String, String> map = new HashMap<>();
+		map = jedis.hgetAll(key);
+		jedisPool.returnResourceObject(jedis);
+		return map;
+	}
+
+	// 添加String k-v
+	public String set(String key, String value) {
+		Jedis jedis = jedisPool.getResource();
+		String string = jedis.set(key, value);
+		jedisPool.returnResourceObject(jedis);
+		return string;
+	}
+
+	public String getresult(String key) {
+		Jedis jedis = jedisPool.getResource();
+		String string = jedis.get(key);
+		jedisPool.returnResourceObject(jedis);
+		return string;
+	}
+
+	public Jedis getJedis() {
+		Jedis resource = jedisPool.getResource();
+		return resource;
+	}
+	
+	
+	public Pipeline getPiple() {
+		Jedis resource = jedisPool.getResource();
+		Pipeline pip=resource.pipelined();
+		return pip;
+	}
+}

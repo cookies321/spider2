@@ -1,0 +1,872 @@
+package cn.jj.service.impl;
+
+import java.io.Serializable;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.commons.lang3.StringUtils;
+import org.json.JSONObject;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.phantomjs.PhantomJSDriver;
+
+import cn.jj.controller.HotelSpiderStart;
+import cn.jj.dao.service.RedisService;
+import cn.jj.dao.service.impl.RedisServiceImpl;
+import cn.jj.entity.Hotel;
+import cn.jj.entity.Params;
+import cn.jj.entity.data.Addressinfo;
+import cn.jj.entity.data.Commentinfo;
+import cn.jj.entity.data.Hotelinfo;
+import cn.jj.entity.data.Pictureinfo;
+import cn.jj.service.IParse;
+import cn.jj.utils.DateUtil;
+import cn.jj.utils.NumUtils;
+import cn.jj.utils.Param;
+import cn.jj.utils.PhantomjsUtils;
+
+
+public class HotelParse implements IParse {
+
+	private RedisService redisService=new RedisServiceImpl();
+
+	//redis中存放params对象的key
+	public static final String MISSION_PARAMS = "mission-params";
+
+	static String creatorID="tyl13564205515";
+	static SimpleDateFormat df=new SimpleDateFormat("yyyy-MM-dd");
+	static String startDate="";
+	static String endDate="";
+	static List<String> dateList=null;
+	static{
+		//获取房型的开始日期
+		startDate = df.format(new Date());
+		//获取房型的结束日期（开始日期的后60天）
+		endDate = DateUtil.getEndDate(startDate, 4);
+		//获取从现在开始之后60天的每一天日期（格式为yyyy-MM-dd形式）
+		dateList = DateUtil.findDates(startDate, endDate);
+	}
+
+
+	@Override
+	public void parse(Serializable seri) {
+		try {
+			Hotel hotel = (Hotel) seri;
+			// 携程酒店解析
+			if(hotel.getUrl().contains("ctrip")){
+				//获取携程房型床型url
+				ctripRoomInfoURL(hotel);
+				//获取携程图片信息
+				ctripPicture(hotel);
+				//获取携程评论信息，通过模拟浏览器
+				//ctripCommentByPhantomJs(hotel);
+			}
+			// 驴妈妈酒店解析
+			if(hotel.getUrl().contains("lvmama")){
+				//获取驴妈妈房型床型url
+				lvmamaRoomInfoURL(hotel);
+				//获取驴妈妈图片信息
+				lvmamaPicture(hotel); 
+				//获取驴妈妈评论url
+				lvmamaCommentURL(hotel);
+			}
+			//途牛酒店解析
+			if(hotel.getUrl().contains("tuniu")){
+				//获取途牛房型床型url
+				tuniuRoomInfoURL(hotel);
+				//获取途牛图片信息
+				tuniuPicture(hotel);
+				//获取途牛评论url
+				tuniuCommentURL(hotel);
+			}
+			//同程酒店解析
+			if(hotel.getUrl().contains("www.ly.com")){
+				//获取同程房型url
+				tongChengRoomInfoURL(hotel);
+				//获取同程图片信息
+				tongChengPicture(hotel);
+				//获取同程评论url
+				tongChengCommentURL(hotel);
+			}
+			//去哪儿酒店解析
+			if(hotel.getUrl().contains("http://touch.qunar.com")){
+				//获取去哪儿酒店房型url和价格url
+				qunaerRoomInfoURL(hotel);
+				//获取去哪儿酒店详情介绍url,并存储一些基本信息
+				qunaerHotelIntroductionURL(hotel);
+				//获取去哪儿酒店图片url
+				qunaerHotelPictureURL(hotel);
+				//获取去哪儿酒店评论url
+				qunaerHotelCommentURL(hotel);
+
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+
+	/**
+	 * @Description 去哪儿酒店评论url获取
+	 * @author 汤玉林
+	 * @date 2017年12月28日 下午1:57:43
+	 * @action qunaerHotelCommentURL
+	 * @param hotel
+	 */
+	private void qunaerHotelCommentURL(Hotel hotel) {
+		String url = hotel.getUrl();
+		String uuid = hotel.getId();
+		String hotelid = url.substring(url.indexOf("seq")+4, url.length());
+		String gradeNum = hotel.getHotelbasicInfo().getGradenum();
+		int total=0;
+		if (StringUtils.isNotBlank(gradeNum)) {
+			total=Integer.valueOf(gradeNum);
+		}
+		int pageTotal = total%15==0?total/15:total/15+1;
+		for (int i = 0; i < pageTotal; i++) {
+			String commentUrl = "http://touch.qunar.com/api/hotel/hoteldetail/comment?seq="+hotelid+"&commentPage="+i;
+
+			Params params=new Params();
+			params.setUuid(uuid);
+			params.setUrl(commentUrl);
+			params.setHttpType(Param.GET);
+			params.setType(Param.QUNAER_HOTEL_COMMENT);
+			params.setDataSource(Param.QUNAER);
+			params.setHeader("Referer", url);
+
+			HotelSpiderStart.redis.add(MISSION_PARAMS, params);
+		}
+
+	}
+
+
+	/**
+	 * @Description 去哪儿酒店图片url获取
+	 * @author 汤玉林
+	 * @date 2017年12月28日 上午11:55:11
+	 * @action qunaerHotelPictureURL
+	 * @param hotel
+	 */
+	private void qunaerHotelPictureURL(Hotel hotel) {
+		String url = hotel.getUrl();
+		String uuid = hotel.getId();
+		String hotelid = url.substring(url.indexOf("seq")+4, url.length());
+		String pictureUrl = "http://touch.qunar.com/api/hotel/hoteldetail/image?seq="+hotelid;
+
+		Params params=new Params();
+		params.setUuid(uuid);
+		params.setUrl(pictureUrl);
+		params.setHttpType(Param.GET);
+		params.setType(Param.QUNAER_HOTEL_PICTURE);
+		params.setDataSource(Param.QUNAER);
+		params.setHeader("Referer", url);
+
+		HotelSpiderStart.redis.add(MISSION_PARAMS, params);
+
+	}
+
+
+	/**
+	 * @Description 去哪儿酒店介绍url获取
+	 * @author 汤玉林
+	 * @date 2017年12月28日 上午11:54:41
+	 * @action qunaerHotelIntroductIonURL
+	 * @param hotel
+	 */
+	private void qunaerHotelIntroductionURL(Hotel hotel) {
+		String url = hotel.getUrl();
+		String uuid = hotel.getId();
+
+		Hotelinfo hotelInfo = hotel.getHotelbasicInfo();
+		hotelInfo.setId(uuid);
+		hotelInfo.setUrl(url);
+		hotelInfo.setDatasource("Qunaer");
+		hotelInfo.setCreatedate(new Date());
+		hotelInfo.setCreator("tyl");
+		hotelInfo.setCreatorid(creatorID);
+
+		redisService.insertAndGetId(hotelInfo);
+
+		Addressinfo addressInfo = hotel.getAddressInfo();
+		addressInfo.setId(UUID.randomUUID().toString());
+		addressInfo.setInfoid(uuid);
+		addressInfo.setCreatedate(new Date());
+		addressInfo.setCreator("tyl");
+		addressInfo.setCreatorid(creatorID);
+
+		redisService.insertAndGetId(addressInfo);
+
+		String hotelid = url.substring(url.indexOf("seq")+4, url.length());
+		String hotelInfoUrl = "http://touch.qunar.com/api/hotel/hoteldetail/info?seq="+hotelid;
+
+		Params params=new Params();
+		params.setUuid(uuid);
+		params.setUrl(hotelInfoUrl);
+		params.setHttpType(Param.GET);
+		params.setType(Param.QUNAER_HOTEL_INTRODUCTION);
+		params.setDataSource(Param.QUNAER);
+		params.setHeader("Referer", url);
+
+		HotelSpiderStart.redis.add(MISSION_PARAMS, params);
+	}
+
+
+	/**
+	 * @Description 去哪儿房型url获取
+	 * @author 汤玉林
+	 * @date 2017年12月28日 上午11:54:09
+	 * @action qunaerRoomInfoURL
+	 * @param hotel
+	 */
+	private void qunaerRoomInfoURL(Hotel hotel) {
+		String url = hotel.getUrl();
+		String uuid = hotel.getId();
+		String hotelid = url.substring(url.indexOf("seq")+4, url.length());
+		for (int i = 0; i < dateList.size()-1; i++) {
+
+			String roomUrl="http://touch.qunar.com/api/hotel/hoteldetail/price?seq="+hotelid+"&checkInDate="+dateList.get(i)+"&checkOutDate="+dateList.get(i+1);
+
+			Params params=new Params();
+			params.setUuid(uuid);
+			params.setUrl(roomUrl);
+			params.setHttpType(Param.GET);
+			params.setType(Param.QUNAER_HOTEL_ROOM);
+			params.setDataSource(Param.QUNAER);
+			params.setHeader("Referer", url);
+
+			HotelSpiderStart.redis.add(MISSION_PARAMS, params);
+		}
+
+	}
+
+
+	/**
+	 * @Description 同程评论url获取
+	 * @author 汤玉林
+	 * @date 2017年12月22日 上午11:24:31
+	 * @action tongChengCommentURL
+	 * @param hotel
+	 */
+	private void tongChengCommentURL(Hotel hotel) {
+		String url = hotel.getUrl();
+		String uuid = hotel.getId();
+		String productId=url.substring(url.lastIndexOf("-")+1, url.lastIndexOf("."));
+		String gradeNum=hotel.getHotelbasicInfo().getGradenum();
+		int commentCount=0;
+		if (StringUtils.isNotBlank(gradeNum)) {
+			commentCount=Integer.valueOf(gradeNum);
+		}
+		int totalPage=commentCount%10==0?commentCount/10:commentCount/10+1;
+		for (int i = 1; i <= totalPage; i++) {
+			String commentURL="https://www.ly.com/hotel/api/comment/list/?hotelid="+productId+"&page="+i+"&pageSize=10&sortType=0&DpSite=2&tagId=1&roomTypeId=&tripPurposeId=&productType=0&antitoken=505df0b323a2093d6e529a3c6ec9e6d9";
+
+			Params params=new Params();
+			params.setUuid(uuid);
+			params.setUrl(commentURL);
+			params.setHttpType(Param.GET);
+			params.setType(Param.TONGCHENG_HOTEL_COMMENT);
+			params.setDataSource(Param.TONGCHENG);
+			params.setHeader("Cookie", "wangba=1511397418759");//评论居然只要这一个参数
+			params.setHeader("Referer", url);
+			params.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36");
+
+			HotelSpiderStart.redis.add(MISSION_PARAMS, params);
+		}
+
+	}
+
+
+	/**
+	 * @Description 同程图片和酒店的部分信息获取
+	 * @author 汤玉林
+	 * @date 2017年12月22日 上午9:49:38
+	 * @action tongChengPicture
+	 * @param hotel
+	 */
+	private void tongChengPicture(Hotel hotel) {
+		String url = hotel.getUrl();
+		System.out.println(url);
+		String uuid = hotel.getId();
+		try {
+			Document doc = Jsoup.parse(hotel.getContent());
+			Elements introElement=doc.select("div.hotel-introduce>span.introduce.introduce-oneline");
+			String introduction="";
+			if(introElement.size()>0){
+				introduction=introElement.text();
+			}
+			System.out.println("酒店介绍："+introduction);
+			Hotelinfo basicInfo=hotel.getHotelbasicInfo();
+			basicInfo.setId(uuid);
+			basicInfo.setUrl(url);
+			basicInfo.setIntroduction(introduction);
+			basicInfo.setCreatedate(new Date());
+			basicInfo.setCreator("tyl");
+			basicInfo.setCreatorid(creatorID);
+
+			hotel.setHotelbasicInfo(basicInfo);
+
+			redisService.insertAndGetId(basicInfo);
+
+			Addressinfo addressInfo=hotel.getAddressInfo();
+			addressInfo.setId(UUID.randomUUID().toString());
+			addressInfo.setInfoid(uuid);
+			addressInfo.setCreatedate(new Date());
+			addressInfo.setCreator("tyl");
+			addressInfo.setCreatorid(creatorID);
+
+			redisService.insertAndGetId(addressInfo);
+
+			int count=1;
+			//获取图片
+			Elements imgElement=doc.select("div.right>div.smpic.active>ul>li.active>img");
+			for(Element e:imgElement){
+				String src="http:"+e.attr("src");
+				Pictureinfo picture=new Pictureinfo();
+				picture.setId(UUID.randomUUID().toString());
+				picture.setInfoid(uuid);
+				picture.setImgurl(src);
+				picture.setSort(count++);
+				picture.setType(4);
+				picture.setDownload(0);
+				picture.setCreatedate(new Date());
+				picture.setCreator("tyl");
+				picture.setCreatorid(creatorID);
+				redisService.insertAndGetId(picture);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			HotelSpiderStart.redis.add(HotelSpiderStart.KEY_HOTLE, hotel);
+		}
+	}
+
+
+	/**
+	 * @Description 同程房型床型url获取
+	 * @author 汤玉林
+	 * @date 2017年12月22日 上午9:44:01
+	 * @action tongChengRoomInfoURL
+	 * @param hotel
+	 */
+	private void tongChengRoomInfoURL(Hotel hotel) {
+		String url = hotel.getUrl();
+		String uuid = hotel.getId();
+		//产品id
+		String productId=url.substring(url.lastIndexOf("-")+1, url.lastIndexOf("."));
+		//循环获取60天的价格url
+		for(int i=0;i<dateList.size()-1;i++){
+			String roomURL="https://www.ly.com/hotel/leonidsys/rooms/HotelPriceHandler.ashx?HotelId="+productId+"&ComeDate="+dateList.get(i)+"&LeaveDate=2017-"+dateList.get(i+1)+"&ResFormat=json";
+
+			Params params=new Params();
+			params.setUuid(uuid);
+			params.setUrl(roomURL);
+			params.setHttpType(Param.GET);
+			params.setType(Param.TONGCHENG_HOTEL_ROOM);
+			params.setDataSource(Param.TONGCHENG);
+			//想起一个事，同程的房型url请求需要加cookie,目前只需要这两个cookie，但是有一定的时限：几个小时左右
+			params.setHeader("Cookie", "td_sid=MTUxNDE4NDc2NCwzOTJlNDJmZTgxZjE2MjYyZDZlYTA0YTA4ZDMyZTY1YmUxZWYwYWM3YTA2NzFlOWJjYTE4ZTcxMjI3ZmZlZmZjLDA1OWI1ZDdhNjY0MzgzZTRkYjljYjAzNGU0NTY3N2RkY2MwNjVjNTQyZjdjNzQ3MzJlMjdmYTlmYjczNzE4ZmQ=;td_did=a05e9zLkro%2BL9Km2ROphe1RzfRT3Fu9Y8rW4pRygVMKiHu41TBJ8djcWo3np%2BIpGmHtNm9TH0zlsgG0ElDlTW7j9lLTUTbALVzOFCr7ALewz9pRgTtLlOekoNpMfY87ciHeNIzAkUeQ09%2BGr3wcSITqmdd7bY5u52DwhwiUddx3wHjTjoB%2F04E6RTl7fEx3VPziz%2Fs2s14PGpIb5Wr6MlYbaEZPiOKVT0%2FLKB6SPwk9pHNeCT9eTK18M76pftzAs");
+			params.setHeader("Referer", url);
+			params.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36");
+
+			HotelSpiderStart.redis.add(MISSION_PARAMS, params);
+		}
+	}
+
+
+	/**
+	 * @Description TODO
+	 * @author 汤玉林
+	 * @date 2017年12月15日 上午8:51:30
+	 * @action tuniuiComment
+	 * @param hotel
+	 */
+	private void tuniuCommentURL(Hotel hotel) {
+		String uuid = hotel.getId();
+		String url=hotel.getUrl();
+		String productId=url.substring(url.lastIndexOf("/")+1, url.length());
+		Document doc=Jsoup.parse(hotel.getContent());
+		try{
+			int commentCount=0;
+			Elements comments=doc.select("li.hotelUserCommentTab>a>span>strong.hotel_score_count");
+			if(StringUtils.isNotBlank(comments.text())){
+				commentCount=NumUtils.getInteger(comments.text());
+			}
+			//获取评论总页数
+			int pageTotal=commentCount%20==0?commentCount/20:commentCount/20+1;
+
+			if(pageTotal>=1){
+				for(int i=1;i<=pageTotal;i++){
+					String	commentURL="http://hotel.tuniu.com/ajax/remarkQuery?"
+							+ "hotelId="+productId+"&p="+i+"&group=undefined";
+
+					Params params=new Params();
+					params.setUuid(uuid);
+					params.setUrl(commentURL);
+					params.setHttpType(Param.GET);
+					params.setType(Param.TUNIU_HOTEL_COMMENT);
+					params.setDataSource(Param.TUNIU);
+					params.setHeader("X-Requested-With", "XMLHttpRequest");
+
+					HotelSpiderStart.redis.add(MISSION_PARAMS, params);
+				}
+			}
+		}catch(Exception e){
+			e.printStackTrace();
+			HotelSpiderStart.redis.add(HotelSpiderStart.KEY_HOTLE, hotel);
+		}
+	}
+
+
+	/**
+	 * @Description 途牛酒店评论数据获取
+	 * @author 汤玉林
+	 * @date 2017年12月15日 上午8:50:56
+	 * @action tuniuPicture
+	 * @param hotel
+	 */
+	private void tuniuPicture(Hotel hotel) {
+		int count=1;
+		String url = hotel.getUrl();
+		String uuid=hotel.getId();
+		try {
+			Document doc= Jsoup.parse(hotel.getContent());
+			Elements hotelIntroduction=doc.select("div.hotel_introduction>div.hotel_introduction_body");
+			String introduction=hotelIntroduction.select("div.e2.clearfix>div.p").text();
+			//获取酒店部分数据
+			Hotelinfo basicInfo=hotel.getHotelbasicInfo();
+			basicInfo.setId(uuid);
+			basicInfo.setUrl(url);
+			basicInfo.setIntroduction(introduction);
+			basicInfo.setCreatedate(new Date());
+			basicInfo.setCreator("tyl");
+			basicInfo.setCreatorid(creatorID);
+			//存入redis
+
+			redisService.insertAndGetId(basicInfo);
+			//获取四级地址信息
+			Elements select = doc.select("div.search_nav>p.crumbs>a");
+			String cityName="";
+			if(select.size()>1){
+				String crumbsStr = select.get(1).text();
+				cityName=crumbsStr.substring(0, crumbsStr.indexOf("酒店预订"));
+			}
+			String addr=basicInfo.getAddress();
+
+			Addressinfo addressInfo=new Addressinfo();
+			addressInfo.setId(UUID.randomUUID().toString());
+			addressInfo.setInfoid(uuid);
+			addressInfo.setCity(cityName);
+			addressInfo.setDetailaddress(addr);
+			addressInfo.setProvince(cityName.equals("上海")?"上海":"海南");
+			addressInfo.setType(2);
+			addressInfo.setCountry("中国");
+			addressInfo.setCreatedate(new Date());
+			addressInfo.setCreator("tyl");
+			addressInfo.setCreatorid(creatorID);
+			redisService.insertAndGetId(addressInfo);
+			//获取图片
+			Elements picList=doc.select("div.hrela_spic_box>div.hrela_spic>ul.hrela_spic_list>li");
+			for(Element e:picList){
+				String imgsrc=e.select("img").attr("data-midd");
+				Pictureinfo picture=new Pictureinfo();
+				String pictureId=UUID.randomUUID().toString();
+				picture.setId(pictureId);
+				picture.setInfoid(uuid);
+				picture.setImgurl(imgsrc);
+				picture.setSort(count++);
+				picture.setType(4);
+				picture.setInfoid(uuid);
+				picture.setDownload(0);
+				picture.setCreatedate(new Date());
+				picture.setCreator("tyl");
+				picture.setCreatorid(creatorID);
+				redisService.insertAndGetId(picture);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			HotelSpiderStart.redis.add(HotelSpiderStart.KEY_HOTLE, hotel);
+		}
+	}
+
+
+	/**
+	 * @Description 获取途牛房型床型url
+	 * @author 汤玉林
+	 * @date 2017年12月15日 上午8:49:35
+	 * @action tuniuRoomInfoURL
+	 * @param hotel
+	 */
+	private void tuniuRoomInfoURL(Hotel hotel) {
+		String uuid = hotel.getId();
+		String url = hotel.getUrl();
+		String productId=url.substring(url.lastIndexOf("/")+1, url.length());
+		Map<String,String> header=new HashMap<String, String>();
+		header.put("X-Requested-With", "XMLHttpRequest");
+		for(int i=0;i<dateList.size()-1;i++){
+			String roomUrl="http://hotel.tuniu.com/ajax/hotelRooms?"
+					+ "id="+productId+"&checkindate=2017-"+dateList.get(i)+"&checkoutdate=2017-"+dateList.get(i+1);
+			Params params=new Params();
+			params.setUuid(uuid);
+			params.setUrl(roomUrl);
+			params.setType(Param.TUNIU_HOTEL_ROOM);
+			params.setDataSource(Param.TUNIU);
+			params.setHttpType(Param.GET);
+			params.setHeader("X-Requested-With", "XMLHttpRequest");
+
+			HotelSpiderStart.redis.add("mission-params", params);
+		}
+	}
+
+
+	/**
+	 * 
+	 * @Description 获取携程酒店房型床型的url
+	 * @author 汤玉林
+	 * @date 2017年12月7日 上午9:41:47
+	 * @action ctripRoomInfoURL
+	 * @param hotel
+	 */
+	private void ctripRoomInfoURL(Hotel hotel){
+		String url=hotel.getUrl();
+		String uuId=hotel.getId();
+		String productId=url.substring(url.lastIndexOf("/")+1, url.lastIndexOf("."));
+		for(int i=0;i<dateList.size()-1;i++){
+			//获取酒店房型床型url
+			String roomUrl="http://hotels.ctrip.com/Domestic/tool/AjaxHote1RoomListForDetai1.aspx?psid="
+					+ "&MasterHotelID="+productId+"&hotel="+productId+"&EDM=F&roomId=&IncludeRoom=&city=&"
+					+ "showspothotel=T&supplier=&IsDecoupleSpotHotelAndGroup=F&contrast=0&brand=0&"
+					+ "startDate=2017-"+dateList.get(i)+"&depDate=2017-"+dateList.get(i+1)+"&IsFlash=F&RequestTravelMoney=F&hsids="
+					+ "&IsJustConfirm=&contyped=0&priceInfo=-1&equip=&filter=&productcode=&couponList=&abForHuaZhu=&defaultLoad=T&TmFromList=F"
+					+ "&eleven=a6345e7ad8ce57141b04b776ecf949c3dff39104214a542a3a808b772c5b2ded&callback=CASSzozqvcbWPNaFOux&_=1509431461626";
+
+			Params params=new Params();
+			//携程房型的url
+			params.setUuid(uuId);
+			params.setUrl(roomUrl);
+			params.setType(Param.CTRIP_HOTEL_ROOM);
+			params.setDataSource(Param.CTRIP);
+			params.setHttpType(Param.GET);
+			params.setHeader("Referer", hotel.getUrl());
+			System.out.println("房型床型url：" + roomUrl);
+			HotelSpiderStart.redis.add(MISSION_PARAMS, params);
+		}
+
+	}
+
+
+	/**
+	 * @Description 携程图片解析
+	 * @author 汤玉林
+	 * @date 2017年12月7日 上午9:51:52
+	 * @action ctripPicture
+	 * @param hotel
+	 */
+	public void ctripPicture(Hotel hotel){
+		String uuId = hotel.getId();
+		Document doc=Jsoup.parse(hotel.getContent());
+		int count=1;
+		if(doc!=null){
+			try{
+				Elements hotelinfo1=doc.select(".special_info");
+				if(hotelinfo1.size()<=0){
+					hotelinfo1=doc.select("div#htlDes>p>span[itemprop=description]");
+				}
+				Elements hotelinfo2=doc.select("div#htlDes");
+				//通过种子链接传过来的值获取
+				Hotelinfo basicInfo=hotel.getHotelbasicInfo();
+				basicInfo.setId(uuId);
+				basicInfo.setUrl(hotel.getUrl());
+				basicInfo.setIntroduction(hotelinfo1.text()+" "+hotelinfo2.text());
+
+				basicInfo.setCreatedate(new Date());
+				basicInfo.setCreator("tyl");
+				basicInfo.setCreatorid(creatorID);
+				//插入详情信息
+				redisService.insertAndGetId(basicInfo);
+				//获取地址信息address
+
+				Addressinfo addressInfo = hotel.getAddressInfo();
+				addressInfo.setId(UUID.randomUUID().toString());
+				addressInfo.setInfoid(uuId);
+				addressInfo.setCreatedate(new Date());
+				addressInfo.setCreator("tyl");
+				addressInfo.setCreatorid(creatorID);
+				redisService.insertAndGetId(addressInfo);
+
+				Elements picList=doc.select("div#topPicList>div>div");
+				for(Element pic:picList){
+					String picAttr="http:"+pic.attr("_src");
+					Pictureinfo picture=new Pictureinfo();
+					String pictureId=UUID.randomUUID().toString();
+					picture.setId(pictureId);
+					picture.setInfoid(uuId);
+					picture.setImgurl(picAttr);
+					picture.setSort(count++);
+					picture.setType(4);
+					picture.setDownload(0);
+					picture.setCreatedate(new Date());
+					picture.setCreator("tyl");
+					picture.setCreatorid(creatorID);
+
+					redisService.insertAndGetId(picture);
+				}
+			}catch(Exception e){
+				e.printStackTrace();
+				e.printStackTrace();
+				HotelSpiderStart.redis.add(HotelSpiderStart.KEY_HOTLE, hotel);
+			}
+		}
+	}
+
+	/**
+	 * 
+	 * @Description 携程评论爬取（通过模拟浏览器）
+	 * @author 汤玉林
+	 * @date 2017年12月11日 上午11:56:30
+	 * @action ctripCommentThirdByPhantomJs
+	 */
+	public void ctripCommentByPhantomJs(Hotel hotel){
+		String url=hotel.getUrl();
+		String uuId=hotel.getId();
+		PhantomJSDriver driver= null;
+		try {
+			driver=(PhantomJSDriver) PhantomjsUtils.getPhantomjs(false);
+			driver.manage().timeouts().implicitlyWait(10, TimeUnit.SECONDS);
+			driver.manage().timeouts().pageLoadTimeout(10, TimeUnit.SECONDS);
+			driver.manage().timeouts().setScriptTimeout(10, TimeUnit.SECONDS);
+			//链接放入浏览器
+			driver.get(url);
+			String html=driver.getPageSource();
+			Document doc=Jsoup.parse(html);
+			System.out.println(url);
+			//总的评论数
+			int commentCount=0;
+			String comment=doc.select("li#commentTab>a").text();
+			if(StringUtils.isNotBlank(comment)){
+				try{
+					commentCount=NumUtils.getInteger(comment);
+				}catch(Exception e){
+					commentCount=0;
+				}
+			}
+			int pageTotal=commentCount%15==0?commentCount/15:commentCount/15+1;
+			for(int k=1;k<=pageTotal;k++){
+				System.out.println("当前页："+k);
+				try{
+					//点击下一页
+					WebElement searchButton = driver.findElement(By.cssSelector("div.c_page>a.c_down"));
+					searchButton.click();
+					try {
+						Thread.sleep(2000);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}catch(Exception e){
+
+				}
+				html=driver.getPageSource();
+				if(StringUtils.isNotBlank(html)){
+					doc=Jsoup.parse(html);
+					driver.manage().timeouts().implicitlyWait(10, TimeUnit.SECONDS);
+					driver.manage().timeouts().pageLoadTimeout(10, TimeUnit.SECONDS);
+					driver.manage().timeouts().setScriptTimeout(10, TimeUnit.SECONDS);
+					Elements commentList=doc.select("div.comment_tab_list>div.comment_detail_list>div.comment_block");
+					for(Element element:commentList){
+						String commentDate=element.select("div.comment_main>div.comment_txt>div.comment_bar>p.comment_bar_info>span.time").text();
+						Commentinfo commentInfo=new Commentinfo();
+						commentInfo.setId(UUID.randomUUID().toString());
+						commentInfo.setInfoid(uuId);
+						commentInfo.setType(2);
+						commentInfo.setCommentdate(commentDate);
+						commentInfo.setContent(element.toString());
+						commentInfo.setCreatedate(new Date());
+						commentInfo.setCreator("tyl");
+						commentInfo.setCreatorid(creatorID);
+
+						redisService.insertAndGetId(commentInfo);
+
+						System.out.println("评论内容："+element.text());
+					}
+				}
+			}
+
+		} catch (Exception e) {
+			e.printStackTrace();
+		}finally{
+			System.out.println("报错了，小伙子！");
+			driver.quit();
+			driver=(PhantomJSDriver) PhantomjsUtils.getPhantomjs(false);
+		}
+
+	}
+
+	/**
+	 * 
+	 * @Description 获得驴妈妈酒店房型床型url
+	 * @author 汤玉林
+	 * @date 2017年12月7日 上午9:45:43
+	 * @action lvmamaRoomInfoURL
+	 * @param hotel
+	 */
+	private void lvmamaRoomInfoURL(Hotel hotel){
+		String uuid = hotel.getId();
+		String url=hotel.getUrl();
+		String hotelCode=url.substring(url.lastIndexOf("/")+1, url.lastIndexOf("."));
+		for(int i=0;i<dateList.size()-1;i++){
+			String roomURL="http://hotels.lvmama.com/prod/hotel/showNewHotelGoods.do";
+			String param="startDateStr=2017-"+dateList.get(i)+"&endDateStr=2017-"+dateList.get(i+1)+""
+					+ "&productId="+hotelCode+"&getTopTwo=false&getPropInfo=false&notSell=N"
+					+ "&removeTimePriceTabel=removeTimePriceTabel";
+			//url传入Params
+			/**
+			 * post修改为get类型
+			 */
+			String roomUrl=roomURL+"?"+param;
+			Params params=new Params();
+			params.setUuid(uuid);
+			params.setUrl(roomUrl);
+			params.setType(Param.LVMAMA_HOTEL_ROOM);
+			params.setDataSource(Param.LVMAMA);
+			params.setHttpType(Param.GET);
+			params.setPostParams(param);
+
+			HotelSpiderStart.redis.add(MISSION_PARAMS, params);
+		}
+	}
+
+	/**
+	 * 
+	 * @Description 解析lvmama酒店详情页中的图片和酒店部分信息
+	 * @author 汤玉林
+	 * @date 2017年11月28日 上午10:44:54
+	 * @action getHotelPicture 
+	 * @param doc 酒店页面
+	 * @return
+	 */
+	public void lvmamaPicture(Hotel hotel){
+		String uuId=hotel.getId();
+		try {
+			Document doc=Jsoup.parse(hotel.getContent());
+			//经纬度
+			Elements script=doc.select("script");
+			String scriptext=script.html();
+			/**
+			 * String index out of range: -1
+			 */
+			String mapString="";
+			try {
+				String destBuMap=scriptext.substring(scriptext.indexOf("DestBuMap"), scriptext.indexOf("publicCallBack"));
+				mapString = destBuMap.substring(destBuMap.indexOf("[")+1, destBuMap.indexOf("]"));
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			String lat="";
+			String lng="";
+			if(StringUtils.isNotBlank(mapString)){
+				JSONObject jsonMap=new JSONObject(mapString);
+				lat=Double.toString(jsonMap.getDouble("latitude"));
+				lng=Double.toString(jsonMap.getDouble("longitude"));
+			}
+			//酒店介绍
+			Elements elements=doc.select("div.product_detailL>div.product_jd>div.xq_img");
+			String hotelDetails=elements.text();
+
+			Hotelinfo basicInfo=hotel.getHotelbasicInfo();
+
+			basicInfo.setId(uuId);
+			basicInfo.setUrl(hotel.getUrl());
+			basicInfo.setLatitude(lat);
+			basicInfo.setLongitude(lng);
+			basicInfo.setIntroduction(hotelDetails);
+			basicInfo.setCreatedate(new Date());;
+			basicInfo.setCreator("汤玉林");
+			basicInfo.setCreatorid(creatorID);
+			redisService.insertAndGetId(basicInfo);
+
+			//种子链接传过来的地址信息
+			Addressinfo addressinfo=hotel.getAddressInfo();
+			addressinfo.setId(UUID.randomUUID().toString());
+			addressinfo.setInfoid(uuId);
+			addressinfo.setCreatedate(new Date());
+			addressinfo.setCreator("汤玉林");
+			addressinfo.setCreatorid(creatorID);
+			redisService.insertAndGetId(addressinfo);
+
+			//酒店图片
+			Elements imgs=doc.select("div.ticket_img_scroll>div.datu.fl>ul.pic_mod_ul>li");
+			int count=0;
+			for(int i=0;i<imgs.size();i++){
+				String imgsrc=imgs.get(i).select("img").attr("src");
+				Pictureinfo picture=new Pictureinfo();
+				String pictureId=UUID.randomUUID().toString();
+				picture.setId(pictureId);
+				picture.setInfoid(pictureId);
+				picture.setImgurl(imgsrc);
+				picture.setSort(count++);
+				picture.setType(4);
+				picture.setDownload(0);
+				picture.setCreatedate(new Date());
+				picture.setCreator("汤玉林");
+				picture.setCreatorid(creatorID);
+				redisService.insertAndGetId(picture);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			HotelSpiderStart.redis.add(HotelSpiderStart.KEY_HOTLE, hotel);
+		}
+	}
+
+	/** 
+	 * @Description 获得驴妈妈酒店的评论url
+	 * @author 汤玉林
+	 * @date 2017年12月8日 下午2:05:12
+	 * @action lvmamaCommentURL
+	 * @param hotel
+	 */
+	public void lvmamaCommentURL(Hotel hotel){
+		String uuid = hotel.getId();
+		try {
+			Document doc=Jsoup.parse(hotel.getContent());
+			Elements elements=doc.select("div.new-cominfo>div.comstati.clearfix>div.com-btns>a.JS-comwrite.comwrite");
+			String commenthref=elements.attr("href");
+			//获得评论的placeID
+			String placeid=commenthref.substring(commenthref.lastIndexOf("=")+1,commenthref.length());
+			Elements commentTotalNum=doc.select("div.tab-dest.tab-fixed>ul.ul-hor.J_scrollnav>li");
+			//评论总数
+			int totalNum=Integer.valueOf(NumUtils.getInteger(commentTotalNum.get(4).select("span").text()));
+			int pageTotal=totalNum%10==0?totalNum/10:(totalNum/10+1);
+
+			for(int i=1;i<=pageTotal;i++){
+				String commentURL="http://hotels.lvmama.com/lvmm_dest_front/comment/newPaginationOfComments";
+				String param="type=all&currentPage="+i+"&totalCount="+totalNum+"&placeId="+placeid+"&productId=&placeIdType=PLACE&isPicture=&isBest=&isPOI=Y&isELong=Y";
+
+				/**
+				 * post修改为get
+				 */
+				String commentUrl=commentURL+"?"+param;
+				Params params=new Params();
+				params.setUuid(uuid);
+				params.setUrl(commentUrl);
+				params.setHttpType(Param.GET);
+				params.setType(Param.LVMAMA_HOTEL_COMMENT);
+				params.setDataSource(Param.LVMAMA);
+
+				HotelSpiderStart.redis.add(MISSION_PARAMS, params);
+			}
+		} catch (Exception e) {
+			HotelSpiderStart.redis.add(HotelSpiderStart.KEY_HOTLE, hotel);
+		}
+	}
+
+
+}

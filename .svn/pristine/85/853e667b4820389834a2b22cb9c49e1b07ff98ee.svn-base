@@ -1,0 +1,23 @@
+package cn.jj.utils;
+
+import org.apache.commons.lang3.StringUtils;
+
+public class ValidateUtil {
+
+	public static boolean valid(String content) {
+		boolean isNull = StringUtils.isBlank(content);
+		
+		if (!isNull) {
+			
+			if (content.contains("请完成验证后继续访问")||content.contains("想不想来一次环球旅行")||
+					content.contains("Bad Request")||content.contains("too many request")) {
+				return true;
+			}else{
+				return false;
+			}
+			
+		}
+	
+		return true;
+	}
+}

@@ -1,0 +1,142 @@
+package cn.jj.utils;
+
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+import org.openqa.selenium.Proxy;
+import org.openqa.selenium.Proxy.ProxyType;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.phantomjs.PhantomJSDriver;
+import org.openqa.selenium.phantomjs.PhantomJSDriverService;
+import org.openqa.selenium.remote.CapabilityType;
+import org.openqa.selenium.remote.DesiredCapabilities;
+
+import cn.jj.Config;
+
+/**
+ * phantomjs工具类
+ * 
+ * @author 徐仁杰
+ */
+public class PhantomjsUtils {
+
+	private static List<WebDriver> driverPool;
+
+	static {
+		driverPool = new ArrayList<>();
+		for (int i = 0; i < 5; i++) {
+			driverPool.add((WebDriver) initConn());
+		}
+	}
+
+	/**
+	 * 通过selenium获取一个phantomjs驱动对象,在需要获取某个标签之前先设置一个等待时间
+	 * phantomjs.manage().timeouts().implicitlyWait(1, TimeUnit.SECONDS);
+	 * 
+	 * @author 徐仁杰
+	 * @param proxyStatus
+	 *            是否开启代理 true为开启,false为不开启
+	 * @return phantomjs驱动对象
+	 */
+	public static WebDriver getPhantomjs(boolean proxyStatus) {
+		// 设置必要参数
+		DesiredCapabilities dcaps = DesiredCapabilities.phantomjs();
+		// ssl证书支持
+		dcaps.setCapability("acceptSslCerts", true);
+		// 截屏支持
+		dcaps.setCapability("takesScreenshot", true);
+		// css搜索支持
+		dcaps.setCapability("cssSelectorsEnabled", true);
+		// js支持
+		dcaps.setJavascriptEnabled(true);
+		// 驱动支持
+		dcaps.setCapability(PhantomJSDriverService.PHANTOMJS_EXECUTABLE_PATH_PROPERTY, Config.PHANTOMJS_DRIVER);
+		// 设置响应头
+		dcaps.setCapability("phantomjs.page.settings.userAgent", HeadersUtils.getUserAgent());
+		dcaps.setCapability("phantomjs.page.settings.loadImages", false);
+		/**************** 设置代理IP ***************/
+		if (proxyStatus) {
+			Proxy proxy = new Proxy();
+			proxy.setProxyType(ProxyType.MANUAL);
+			proxy.setAutodetect(false);
+			proxy.setHttpProxy(PageDownLoadUtil.getProxyIpPort());
+			dcaps.setCapability(CapabilityType.PROXY, proxy);
+		}
+		/**************** 设置代理IP ***************/
+		// 创建无界面浏览器对象
+		WebDriver driver = new PhantomJSDriver(dcaps);
+		return driver;
+	}
+
+	/**
+	 * @Description 初始化
+	 * @author 徐仁杰
+	 * @date 2017年12月18日 上午9:47:41
+	 * @action addConn
+	 * @return Object
+	 */
+	public static Object initConn() {
+			final WebDriver phantomjs = getPhantomjs(false);
+			Object proxy = java.lang.reflect.Proxy.newProxyInstance(PhantomjsUtils.class.getClassLoader(),
+					new Class<?>[] { WebDriver.class }, new InvocationHandler() {
+						@Override
+						public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+							if ("quit".equals(method.getName())) {
+								synchronized (driverPool) {
+									driverPool.add((WebDriver) proxy);
+									driverPool.notifyAll();
+									return null;
+								}
+							} else {
+								return method.invoke(phantomjs, args);
+							}
+						}
+					});
+			return proxy;
+	}
+
+	/**
+	 * @Description 获取连接对象
+	 * @author 徐仁杰
+	 * @date 2017年12月18日 上午9:47:58
+	 * @action getPhantomjsConn
+	 * @return WebDriver
+	 */
+	public static WebDriver getPhantomjsConn() {
+		System.out.println(driverPool.size());
+		if (Objects.nonNull(driverPool) && driverPool.size() == 0) {
+			for (int i = 0; i < 2; i++) {
+				driverPool.add(getPhantomjs(false));
+			}
+		}
+		return driverPool.remove(0);
+	}
+
+	public static void main(String[] args) {
+
+		WebDriver phantomjsConn = PhantomjsUtils.getPhantomjsConn();
+		phantomjsConn.get("http://blog.csdn.net/u010644448/article/details/51899235");
+		String pageSource = phantomjsConn.getPageSource();
+		phantomjsConn.quit();
+		System.out.println(pageSource);
+		
+		while(true) {
+			
+		}
+
+		// WebDriver phantomjs = getPhantomjs(true);
+		// // phantomjs.get("https://proxy.mimvp.com/demo2.php#demo-item-demo");
+		// // WebDriverWait wait = new WebDriverWait(phantomjs, 10);
+		// // wait.until(ExpectedConditions.presenceOfElementLocated(By.id("")));
+		// try {
+		// phantomjs.get("https://proxy.mimvp.com/demo2.php#demo-item-demo");
+		// String pageSource = phantomjs.getPageSource();
+		// System.out.println(pageSource);
+		// } finally {
+		// phantomjs.quit();
+		// }
+	}
+}

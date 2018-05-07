@@ -1,0 +1,178 @@
+package cn.jj.controller;
+
+import java.io.Serializable;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+
+import org.apache.commons.lang3.StringUtils;
+import org.junit.Test;
+
+import cn.jj.dao.service.RedisService;
+import cn.jj.dao.service.impl.RedisServiceImpl;
+import cn.jj.entity.Stroke;
+import cn.jj.entity.data.Addressinfo;
+import cn.jj.entity.data.Pictureinfo;
+import cn.jj.entity.data.Sceinfo;
+import cn.jj.service.IDownLoadService;
+import cn.jj.service.IParse;
+import cn.jj.service.impl.DownLoad;
+import cn.jj.service.impl.StrokeParse;
+import cn.jj.utils.RedisUtil;
+import cn.jj.utils.ValidateUtil;
+
+/**
+ * @Description: 景点爬虫入口
+ * @author 徐仁杰
+ * @date 2017年11月30日 上午9:43:59
+ */
+public class StrokeSpiderStart {
+
+	/**
+	 * 下载接口
+	 */
+	private IDownLoadService downLoad;
+
+	/**
+	 * 景点解析接口
+	 */
+	private IParse strokeParse;
+
+	/**
+	 * redis队列
+	 */
+	public static RedisUtil queue =RedisUtil.getInstance();
+
+	//redis持久化接口
+
+	private RedisService redisService=new RedisServiceImpl();
+	
+	//redis中存放分页链接的key
+	public static final String KEY_STROKE = "stroke";
+	
+	public IParse getStrokeParse() {
+		return strokeParse;
+	}
+
+	public void setStrokeParse(IParse strokeParse) {
+		this.strokeParse = strokeParse;
+	}
+
+	public IDownLoadService getDownLoad() {
+		return downLoad;
+	}
+
+	public void setDownLoad(IDownLoadService downLoad) {
+		this.downLoad = downLoad;
+	}
+
+	public StrokeSpiderStart() {
+		super();
+	}
+
+	/**
+	 * @Description 下载详情
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午9:45:06
+	 * @action downLoadPage
+	 * @return Serializable
+	 */
+	public Serializable downLoadPage(String url) {
+		return this.downLoad.download(url);
+	}
+
+
+	/**
+	 * @Description 景点解析
+	 * @author 徐仁杰
+	 * @date 2017年12月5日 上午10:10:49
+	 * @action parseScenic
+	 * @return void
+	 */
+	public void parseScenic(Stroke stroke) {
+		this.strokeParse.parse(stroke);
+	}
+	public static int count=1;
+	/**
+	 * @Description 启动程序
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午9:46:13
+	 * @action startRouteSpider
+	 * @return void
+	 */
+	public void startStrokeSpider() {
+		while (true) {
+			
+			try {
+				Stroke stroke = (Stroke) queue.poll(KEY_STROKE);
+				
+/*	Stroke stroke = new Stroke();
+				stroke.setUrl("http://you.ctrip.com/sight/haikou37/3183.html");
+				stroke.setPageUrl("afsf");
+				*/
+
+				if (Objects.nonNull(stroke)) {
+					String url=stroke.getUrl();
+					//if(url.contains("http://www.lvmama.com/lvyou/poi/sight-175649.html")){
+						//存入redis景点详情url的uuid
+						String uuId=UUID.randomUUID().toString();
+						queue.set(url,uuId);
+						//详情下载
+						String content="";
+						try {
+							System.out.println("取出url开始解析");
+							content = (String) this.downLoad.download(url);
+							System.out.println("解析成功"+ValidateUtil.valid(content));
+							if(ValidateUtil.valid(content)){
+								System.out.println("内容为空的url为："+url+"累计共有"+count++);
+								queue.add(KEY_STROKE, stroke);
+								continue;
+							}
+						} catch (Exception e) {
+							queue.add(KEY_STROKE, stroke);
+							continue;
+						}
+						stroke.setId(uuId);
+						stroke.setContent(content);
+						try {
+							//解析景点详情
+							this.parseScenic(stroke);
+						} catch (Exception e) {
+							queue.add(KEY_STROKE, stroke);
+							continue;
+						}					
+					}else {
+						try {
+							Thread.sleep(2000);
+							System.out.println("队列中没有链接了");
+						} catch (InterruptedException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+					}
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+	}
+
+	/**
+	 * @see 1、设置下载实现类
+	 * @see 2、设置解析实现类
+	 * @see 3、设置缓存队列
+	 * @Description 启动示例
+	 * @author 徐仁杰
+	 * @date 2017年11月30日 上午9:45:59
+	 * @action main
+	 * @return void
+	 */
+	public static void main(String[] args) {
+		StrokeSpiderStart spiderStart = new StrokeSpiderStart();
+		spiderStart.setDownLoad(new DownLoad());
+		spiderStart.setStrokeParse(new StrokeParse());
+		spiderStart.startStrokeSpider();
+	}
+
+
+}

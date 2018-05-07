@@ -1,0 +1,15 @@
+#phtomjs\u5b89\u88c5\u8def\u5f84
+driver.PhantomjsDriver=E:\\Program Files (x86)\\phantomjs-2.0.0-windows\\bin\\phantomjs.exe
+#redis\u914d\u7f6e
+redis.MaxIdle=100
+redis.MaxTotal=300
+redis.MaxWaitMillis=10000
+redis.TestOnBorrow=true
+redis.ip=192.168.0.250
+#redis.ip=127.0.0.1
+#redis.ip=192.168.0.208
+redis.port=6379
+#\u4ee3\u7406IP\u5728redis\u4e2d\u5b58\u50a8\u7684key
+proxy.ip.redis.key=proxy.138.
+
+proxy.ip=192.168.0.125

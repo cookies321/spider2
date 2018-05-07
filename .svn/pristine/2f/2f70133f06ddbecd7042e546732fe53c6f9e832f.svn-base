@@ -1,0 +1,1051 @@
+package cn.jj.service.impl;
+
+import java.io.Serializable;
+import java.util.Date;
+import java.util.UUID;
+
+import org.apache.commons.lang3.StringUtils;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
+import cn.jj.controller.StrokeSpiderStart;
+import cn.jj.dao.service.RedisService;
+import cn.jj.dao.service.impl.RedisServiceImpl;
+import cn.jj.entity.Params;
+import cn.jj.entity.Stroke;
+import cn.jj.entity.data.Addressinfo;
+import cn.jj.entity.data.Pictureinfo;
+import cn.jj.entity.data.Sceinfo;
+import cn.jj.entity.data.Scepriceinfo;
+import cn.jj.service.IParse;
+import cn.jj.utils.NumUtils;
+import cn.jj.utils.Param;
+
+public class StrokeParse implements IParse {
+	//redis持久化接口
+	private RedisService redisService=new RedisServiceImpl();
+
+	//redis中存放params对象的key
+	public static final String MISSION_PARAMS = "mission-params";
+
+	@Override
+	public void parse(Serializable seri) {
+		try {
+			Stroke stroke = (Stroke) seri;
+			// 驴妈妈景点解析
+			if (stroke.getUrl().startsWith("http://www.lvmama.com/lvyou/poi/sight")) {
+				//获取驴妈妈景点详情信息
+				lvmamaStrokeDetail(stroke);
+				//获取驴妈妈评论的url,放入对象，用于后面解析获取pageNum
+				lvmamaCommentURL(stroke);
+				//获取驴妈妈想去人数的url，放入对象，用于后面解析获取BeenNum,WantToNum
+				lvmamaWantToURL(stroke);
+			}
+			//携程景点解析
+			if(stroke.getUrl().startsWith("http://you.ctrip.com/sight")){
+				//解析携程景点详情信息
+				ctripStrokeDetail(stroke);
+				//获取携程景点想去人数和去过人数的url,用于后面解析获取BeenNum,WantToNum
+				ctripWantToURL(stroke);
+			}
+			//途牛景点解析
+			if(stroke.getUrl().startsWith("http://www.tuniu.com/")){
+				//解析途牛详情
+				tuniuStrokeDetail(stroke);
+				//获取途牛评论url
+				tuniuCommentURL(stroke);
+			}
+			//同城景点解析
+			if(stroke.getUrl().startsWith("https://www.ly.com/")){
+				//解析途牛详情
+				tongchengStrokeDetail(stroke);
+				//获取途牛评论url
+				tongchengStrokeCommentUrl(stroke);
+			}
+			if(stroke.getUrl().startsWith("http://travel.qunar.com/")){
+				//解析去哪儿详情
+				qunarStrokeDetail(stroke);
+			}
+		} catch (Exception e) {
+			// TODO: handle exception
+		}
+	}
+
+	/**
+	 * 
+	 * @Description 解析去哪儿网景点详情
+	 * @author 赵乐
+	 * @date 2017年12月27日 上午10:43:17
+	 * @action qunarStrokeDetail
+	 * @param @param stroke
+	 * @return void
+	 */
+	private void qunarStrokeDetail(Stroke stroke) {
+		// TODO Auto-generated method stub
+		String url = stroke.getUrl();
+		String content = stroke.getContent();
+		String uuid=stroke.getId();
+		String productid=NumUtils.getInteger(url)+"";
+		//景点基础信息对象
+		Sceinfo sceInfo = new Sceinfo();
+		//景点四级地址
+		Addressinfo addressinfo = new Addressinfo();
+
+		Document doc = Jsoup.parse(content);
+		try {
+
+			//景点名称
+			Elements elementsName = doc.select("div#js_mainleft>div.b_title.clrfix>h1.tit");
+			if(elementsName.isEmpty()){
+				System.out.println(url+" 景点的名字获取失败!=====================");
+			}else{
+				String nameStr = elementsName.text();
+				String name = nameStr.split("[a-z|A-z]")[0]; 
+				sceInfo.setName(name);
+
+				//景点地址
+				Elements addressEle = doc.select("div.e_summary_list.clrfix>table>tbody>tr>td.td_l>dl:nth-child(1)>dd>span");
+				if(addressEle.isEmpty()){
+					addressEle = doc.select("div.e_summary_list_box>div.e_summary_list.clrfix>dl>dd>span");
+				}
+				String address = addressEle.isEmpty()?"":addressEle.text();
+				sceInfo.setAddress(address);
+				//开发时间
+				Elements openTimeEle = doc.select("div.e_summary_list.clrfix>table>tbody>tr>td.td_r>dl:nth-child(1)>dd>span");				
+				String openTime = openTimeEle.isEmpty()?"":openTimeEle.text();
+				sceInfo.setOpentime(openTime);
+				//获取景点介绍信息
+				Elements introductionEle = doc.select("div#gs>div.e_db_content_box>div.short>div.content>p");
+				String introduction=introductionEle.isEmpty()?"":introductionEle.text();
+				sceInfo.setIntroduction(introduction);
+				//经纬度
+				Elements latlngEle = doc.select("div.mapbox_outside>div.mapbox");
+				if(!latlngEle.isEmpty()){
+					String latlng = latlngEle.attr("latlng");
+					if(latlng != null && !"".equals(latlng)){
+						String []latlngArr = latlng.split(",");
+						String longitude = latlngArr[1];		//
+						String latitude = latlngArr[0];
+						sceInfo.setLongitude(longitude);
+						sceInfo.setLatitude(latitude);
+					}
+				}
+				//建议游玩时间描述
+				Elements adviceTimeEle= doc.select("div.txtbox>div.time");
+				if(!adviceTimeEle.isEmpty()){
+					String adviceTimeStr = adviceTimeEle.text();
+					String adviceTime = adviceTimeStr.split("：")[1];
+					sceInfo.setAdvicetime(adviceTime);
+				}				
+				//景点评分
+				Elements gradeEle = doc.select("div.m_scorebox>div.scorebox.clrfix>span.cur_score");
+				String grade = gradeEle.isEmpty()?"":gradeEle.text();
+				sceInfo.setGrade(grade);
+				//景点评分个数
+				Elements gradeNumEle = doc.select("div.e_nav_txt_box>span>span.e_nav_comet_num");
+				String gradeNum = gradeNumEle.isEmpty()?"":gradeNumEle.first().text();
+
+				sceInfo.setId(uuid);
+				sceInfo.setGradenum(gradeNum);
+				sceInfo.setDatasource("Qunaer");
+				sceInfo.setCreatedate(new Date());
+				sceInfo.setCreator("姚良良");
+				sceInfo.setCreatorid("13783985208");
+				//持久化或更新景点基础信息
+				redisService.insertAndGetId(sceInfo);
+
+				//国家
+				Elements countryEle = doc.select("div.e_crumbs>ul.clrfix>li.item.pull:nth-child(3)>a");
+				String country = countryEle.isEmpty()?"":countryEle.text();
+				addressinfo.setCountry(country);
+				//省
+				Elements provinceEle = doc.select("div.e_crumbs>ul.clrfix>li.item.pull:nth-child(4)>a");
+				String province = provinceEle.isEmpty()?"":provinceEle.text();
+				addressinfo.setProvince(province);
+				//市
+				Elements cityEle = doc.select("div.e_crumbs>ul.clrfix>li.item.pull:nth-child(5)>a");
+				String city = cityEle.isEmpty()?"":cityEle.text();
+				addressinfo.setId(UUID.randomUUID().toString());
+				addressinfo.setCity(city);
+				addressinfo.setInfoid(uuid);
+				addressinfo.setType(1);
+				addressinfo.setDetailaddress(address);
+				addressinfo.setCreatedate(new Date());
+				addressinfo.setCreator("姚良良");
+				addressinfo.setCreatorid("83985208");
+				redisService.insertAndGetId(addressinfo);
+				//景点图片
+				Elements pictureEle = doc.select("ul#idNum>li>div.imgbox>img");
+				if(!pictureEle.isEmpty()){
+					System.out.println("图片的数目"+pictureEle.size());
+					int n = 0;
+					for(int j = 1; j <= pictureEle.size(); j++){
+						Pictureinfo pictureinfo=new Pictureinfo();
+						String pictureurl=pictureEle.attr("src");
+						String uurid = UUID.randomUUID().toString();
+						pictureinfo.setId(uurid);
+						pictureinfo.setInfoid(uuid);
+						pictureinfo.setImgurl(pictureurl);
+						pictureinfo.setSort(j);
+						pictureinfo.setType(1);
+						pictureinfo.setDownload(0);
+						pictureinfo.setCreatedate(new Date());
+						pictureinfo.setCreator("姚良良");
+						pictureinfo.setCreatorid("13783985208");
+						redisService.insertAndGetId(pictureinfo);
+					}
+				}
+				//景点价格
+				Elements priceEle = doc.select("div#mp>div.e_ticket_info_box>div.e_ticket_info>dl");
+				if(!priceEle.isEmpty()){
+					for (Element element : priceEle) {
+						Scepriceinfo priceInfo = new Scepriceinfo();
+						//价格条目
+						Elements priceItemEle = element.select("dt");
+						if(priceItemEle.isEmpty()){
+							System.out.println("该价格信息获取失败!");
+							continue;
+						}					
+						String priceItem = priceItemEle.text();
+						priceInfo.setPriceitem(priceItem);
+						//市场价
+						Elements marketingPriceEle = element.select("dd.e_old_price");
+						String marketingPriceStr = marketingPriceEle.isEmpty()?"":marketingPriceEle.text();
+						String marketingPrice = NumUtils.getInteger(marketingPriceStr).toString();
+						priceInfo.setMarketingprice(marketingPrice);
+						//销售价
+						Elements salePriceEle = element.select("dd.e_now_price");
+						String salePriceStr = salePriceEle.isEmpty()?"":salePriceEle.text().substring(1);
+						String salePrice = NumUtils.getInteger(salePriceStr).toString();
+						priceInfo.setSaleprice(salePrice);
+						priceInfo.setId(UUID.randomUUID().toString());
+						priceInfo.setScenicid(uuid);
+						priceInfo.setCreatedate(new Date());
+						priceInfo.setCreator("姚良良");
+						priceInfo.setCreatorid("13783985208");
+						redisService.insertAndGetId(priceInfo);
+					}
+					//"http://travel.qunar.com/place/api/html/comments/poi/"+productid+"?poiList=true&sortField=1&rank=0&pageSize=10&page="+j
+					if(!"".equals(gradeNum)){
+						Integer total = Integer.parseInt(gradeNum);
+						Integer page = total%10 == 0?total/10:total/10+1;
+
+						for(int i=1;i<=page;i++){
+							String commentUrl = "http://travel.qunar.com/place/api/html/comments/poi/"+productid+"?poiList=true&sortField=1&rank=0&pageSize=10&page="+i;
+							Params params=new Params();
+							params.setUuid(uuid);
+							params.setUrl(commentUrl);
+							params.setHttpType(Param.GET);
+							params.setType(Param.QUNAER_STROKE_COMMENT);
+							params.setDataSource(Param.QUNAER);
+							StrokeSpiderStart.queue.add(MISSION_PARAMS, params);
+						}
+					}
+
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			StrokeSpiderStart.queue.add(StrokeSpiderStart.KEY_STROKE, stroke);
+		}
+	}
+
+	/**
+	 * 
+	 * @Description 获取同城景点评论url
+	 * @author 赵乐
+	 * @date 2017年12月25日 下午5:13:41
+	 * @action tongchengStrokeCommentUrl
+	 * @param @param stroke
+	 * @return void
+	 */
+	private void tongchengStrokeCommentUrl(Stroke stroke) {
+		// TODO Auto-generated method stub
+		String uuId=stroke.getId();
+		String content = stroke.getContent();
+		Document document = Jsoup.parse(content);
+		//productId
+		Elements selectProductId = document.select("input#poiResourceID");
+		String productId=selectProductId.isEmpty()?"":selectProductId.attr("value");
+		//设置景点评论的首页url
+		if(!StringUtils.isBlank(productId)){
+			Params params=new Params();
+			String commentUrl="https://www.ly.com/go/RainbowClientAjax/getdianping";
+			String param="requsetParms={projectTag:\"jingqu\",productId:"+productId+",reqFrom:1,tagId:1,page:1,pageSize:10}&serviceName=getdianpinglist";
+			params.setUuid(uuId);
+			params.setUrl(commentUrl+"?"+param);
+			params.setHttpType(Param.GET);
+			params.setType(Param.TONGCHENG_STROKE_COMMENT_FIRST);
+			params.setDataSource(Param.TONGCHENG);
+			System.out.println("插入评论url");
+			StrokeSpiderStart.queue.add(MISSION_PARAMS, params);
+		}
+	}
+
+	/**
+	 * 
+	 * @Description 解析同城景点详情信息
+	 * @author 赵乐
+	 * @date 2017年12月22日 下午3:08:04
+	 * @action tongchengStrokeDetail
+	 * @param @param stroke
+	 * @return void
+	 */
+	private void tongchengStrokeDetail(Stroke stroke) {
+		// TODO Auto-generated method stub
+		String uuId = stroke.getId();
+		String url = stroke.getUrl();
+		String content = stroke.getContent();
+		//景点基础信息对象
+		Sceinfo sceinfo = stroke.getSceinfo();
+		Addressinfo addressinfo = stroke.getAddressinfo();
+
+		Document document=Jsoup.parse(content);
+		try {
+			Elements elementsdl = document.select("div.con_left>div.lablebox>dl");
+			if(!elementsdl.isEmpty()){
+				Elements elementsdt = elementsdl.select("dt");
+				Elements elementsdd = elementsdl.select("dd");
+				String dtstr=elementsdt.isEmpty()?"":elementsdt.text();
+				String ddstr=elementsdd.isEmpty()?"":elementsdd.text();
+				switch (dtstr){
+				case "景区特色：":
+					break;
+				case "简介：":
+					//景点介绍
+					String introduction=ddstr;
+					sceinfo.setIntroduction(introduction);
+					break;
+					//景点开放时间描述
+				case "开放时间：":
+					String openTime=ddstr;
+					sceinfo.setOpentime(openTime);
+					break;
+				case "游玩时长：":
+					//建议游玩时间描述
+					String adviceTime=ddstr;
+					sceinfo.setAdvicetime(adviceTime);
+					break;
+				case "门票信息：":
+					String otherInformation=ddstr;
+					sceinfo.setOtherinformation(otherInformation);
+					break;
+				default:
+					break;
+				}
+			}
+			sceinfo.setId(uuId);
+			sceinfo.setUrl(url);
+			sceinfo.setCreatedate(new Date());
+			sceinfo.setCreator("赵乐");
+			sceinfo.setCreatorid("15736708180");
+			redisService.insertAndGetId(sceinfo);
+			//景点评分个数
+			//景点去过人数/出游人数
+			//景点想去人数
+			//补充四级地址表信息
+			addressinfo.setId(UUID.randomUUID().toString());
+			addressinfo.setInfoid(uuId);
+			addressinfo.setCreatedate(new Date());
+			addressinfo.setCreator("赵乐");
+			addressinfo.setCreatorid("15736708180");
+			System.out.println("插入四级地址表");
+			redisService.insertAndGetId(addressinfo);
+			//图片信息
+			Elements imurlEle = document.select("div.con_left>div.cityinfo>img");
+			String imUrl=imurlEle.attr("src");
+			Pictureinfo pictureInfo=new Pictureinfo();
+			pictureInfo.setId(UUID.randomUUID().toString());
+			pictureInfo.setInfoid(uuId);
+			pictureInfo.setImgurl(imUrl);
+			pictureInfo.setSort(1);
+			pictureInfo.setType(1);
+			pictureInfo.setCreatedate(new Date());
+			pictureInfo.setCreator("赵乐");
+			pictureInfo.setCreatorid("15736708180");
+			System.out.println("插入图片");
+			redisService.insertAndGetId(pictureInfo);
+		} catch (Exception e) {
+			e.printStackTrace();
+			StrokeSpiderStart.queue.add(StrokeSpiderStart.KEY_STROKE, stroke);
+		}
+
+	}
+
+	/**
+	 * @Description 途牛景点解析
+	 * @author 汤玉林
+	 * @date 2017年12月13日 上午10:15:52
+	 * @action tuniuStrokeDetail
+	 * @param stroke
+	 */
+	private void tuniuStrokeDetail(Stroke stroke) {
+		String uuid = stroke.getId();
+		String url=stroke.getUrl();
+		//景点基础信息对象
+		Sceinfo sceInfo = new Sceinfo();
+		sceInfo.setId(uuid);
+		sceInfo.setUrl(url);
+		Document document=Jsoup.parse(stroke.getContent());
+		try {
+
+			Elements elements = document.select("div.row>div.photo.wrapper>a");
+			String name="";
+			if(!elements.isEmpty()){
+				System.out.println("图片的数目"+elements.size());
+				for(int i = 0; i < elements.size(); i++){
+					Pictureinfo pictureinfo=new Pictureinfo();
+					String pictureurl=elements.get(i).select("img").attr("src");
+					System.out.println(pictureurl+"图片链接");
+					String uurid = UUID.randomUUID().toString();
+					pictureinfo.setId(uurid);
+					pictureinfo.setInfoid(uuid);
+					pictureinfo.setImgurl(pictureurl);
+					pictureinfo.setSort(i);
+					pictureinfo.setType(1);
+					pictureinfo.setDownload(0);
+					pictureinfo.setCreatedate(new Date());
+					pictureinfo.setCreator("赵乐");
+					pictureinfo.setCreatorid("15736708180");
+					System.out.println(pictureurl);
+					redisService.insertAndGetId(pictureinfo);
+				}
+				Elements elementsName = elements.get(0).select("div.mask-coat>div.mask>h1.signal");
+				//景点名称
+				name=elementsName.isEmpty()?"":elementsName.text();
+			}
+			sceInfo.setName(name);
+			//获取景点介绍信息
+			Elements elementsIntroduction = document.select("div#view_bar>div.coat>p");
+			String introduction=elementsIntroduction.isEmpty()?"":elementsIntroduction.text();
+			sceInfo.setIntroduction(introduction);
+			//景点地址
+			Elements elementsContent = document.select("div#view_bar>div.route>div.content");
+			String address="";
+			if(!elementsContent.isEmpty()){
+				for(Element element:elementsContent){
+					Elements elementLeft = element.select("div.left");
+					String left=elementLeft.isEmpty()?"":elementLeft.text();
+					Elements elementRight = element.select("div.right");
+					String right=elementRight.isEmpty()?"":elementRight.text();
+					switch(left){
+					case "地址":
+						//景点地址
+						address=right;
+						sceInfo.setAddress(address);
+						break;
+					case "开放时间":
+						//开放时间
+						String openTime=right;
+						sceInfo.setOpentime(openTime);
+						break;
+					case "交通":
+						Elements elementsOtherInformation = elementRight.select("div.traffic");
+						String otherInformation=elementsOtherInformation.isEmpty()?"":elementsOtherInformation.text();
+						sceInfo.setOtherinformation(otherInformation);
+						break;
+					default:
+						break;
+					}
+				}
+				Elements elementLocation = elementsContent.select("div.left.location");
+				String location=elementLocation.isEmpty()?"":elementLocation.attr("data-default-point");
+				//经纬度
+				String longitude="";
+				String latitude="";
+				if(!"".equals(location)){
+					String locations[]=location.split(",");
+					if(locations.length>1){
+						longitude=locations[0];
+						latitude=locations[1];
+					}
+				}
+				sceInfo.setLongitude(longitude);
+				sceInfo.setLatitude(latitude);
+				Elements elementAdviceTime= elementsContent.select("div.far>div.right");
+				String adviceTime=elementAdviceTime.isEmpty()?"":elementAdviceTime.text();
+				System.out.println(adviceTime);
+				sceInfo.setAdvicetime(adviceTime);
+				sceInfo.setDatasource("Tuniu");
+				sceInfo.setCreatedate(new Date());
+				sceInfo.setCreator("赵乐");
+				sceInfo.setCreatorid("15736708180");
+
+			}
+			redisService.insertAndGetId(sceInfo);
+			//地址表
+			Addressinfo addressinfo = stroke.getAddressinfo();
+			System.out.println(addressinfo);
+			addressinfo.setId(UUID.randomUUID().toString());
+			addressinfo.setInfoid(uuid);
+			addressinfo.setDetailaddress(address);
+			addressinfo.setCreatedate(new Date());
+			addressinfo.setCreator("赵乐");
+			addressinfo.setCreatorid("15736708180");
+			redisService.insertAndGetId(addressinfo);
+			//评论页码 pageNum
+			Elements elementspageNum = document.select("div#interact>div.module.module2.comment-module>div.page>ul.part");
+			String pageNum=elementspageNum.isEmpty()?"":elementspageNum.attr("data-pages");
+			if(StringUtils.isBlank(pageNum)){
+				pageNum="0";
+			}
+			System.out.println(pageNum);
+			//把评论页码放在otherinformation中，方便后面取
+			stroke.setOtherinformation(pageNum);
+		} catch (Exception e) {
+			e.printStackTrace();
+			StrokeSpiderStart.queue.add(StrokeSpiderStart.KEY_STROKE, stroke);
+		}
+	}
+
+
+	/**
+	 * 
+	 * @Description 获取途牛评论url，并存入redis
+	 * @author 汤玉林
+	 * @date 2017年12月13日 上午10:33:22
+	 * @action getTuniuScenicComment
+	 * @param stroke
+	 */
+	public void tuniuCommentURL(Stroke stroke){
+		String url=stroke.getUrl();
+		//解析里面讲pageNum的值放在otherinformation中
+		String pageNum=stroke.getOtherinformation();
+		//截取scenInfourl中景点的poiId
+		String poiId=url.substring(22, url.lastIndexOf("/guide"));
+		for(int i=1;i<=Integer.valueOf(pageNum);i++){
+			String commentUrl="http://www.tuniu.com/newguide/api/widget/render/?widget=ask.AskAndCommentWidget&params[poiId]="
+					+poiId+"&params[page]="+i;
+			Params params = new Params();
+			params.setType(Param.TUNIU_STROKE_COMMENT);
+			params.setDataSource(Param.TUNIU);
+			params.setHttpType(Param.GET);
+			params.setUrl(commentUrl);
+			params.setUuid(stroke.getId());
+			StrokeSpiderStart.queue.add(MISSION_PARAMS, params);
+		}
+	}
+
+
+	/**
+	 * 
+	 * @Description 解析携程景点的详情
+	 * @author 赵乐
+	 * @date 2017年12月13日 上午10:15:33
+	 * @action ctripStrokeDetail
+	 * @param @param stroke
+	 * @return void
+	 */
+	private void ctripStrokeDetail(Stroke stroke) {
+		String uuid=stroke.getId();
+		// TODO Auto-generated method stub
+		String href=stroke.getUrl();
+		//获取附加信息,请求评论分页url的参数
+		String resourceId=href.substring(href.lastIndexOf("/")+1,href.lastIndexOf("."));
+		String districtIdAndName=href.substring(href.indexOf("sight/")+6,href.lastIndexOf("/"));
+		String districtId=NumUtils.getInteger(districtIdAndName)+"";
+		String districteName=districtIdAndName.substring(0,districtIdAndName.indexOf(districtId));
+
+		Document document=Jsoup.parse(stroke.getContent());
+		//景点基础信息对象
+		Sceinfo sceInfo = new Sceinfo();
+		sceInfo.setId(uuid);
+		sceInfo.setUrl(stroke.getUrl());
+		sceInfo.setType("1");
+		sceInfo.setDatasource("Ctrip");
+		sceInfo.setCreatedate(new Date());
+		sceInfo.setCreator("赵乐");
+		sceInfo.setCreatorid("15736708180");
+		try {
+
+			//景点名称
+			Elements elementsName = document.select("div.dest_toptitle.detail_tt>div.cf>div.f_left>h1>a");
+			String name= elementsName.isEmpty() ? "":elementsName.text();
+			sceInfo.setName(name);
+			//景点地址
+			Elements elementsAddress = document.select("div.s_sight_infor>p.s_sight_addr");
+			String  addressstr=elementsAddress.isEmpty()? "":elementsAddress.text();
+			String address="";
+			if(!"".equals(addressstr)){
+				address=addressstr.substring(addressstr.indexOf("地址：")+3, addressstr.length());
+			}
+			sceInfo.setAddress(address);
+			//景点介绍
+			Elements elementsIntroduction = document.select("div.detailcon.detailbox_dashed>div.toggle_l>div.text_style>p");
+			String introduction=elementsIntroduction.isEmpty()? "":elementsIntroduction.text();
+			sceInfo.setIntroduction(introduction);
+			//经纬度
+			Elements elementsByTag = document.getElementsByTag("meta");
+			String script="";
+			if(!elementsByTag.isEmpty()){
+				for(Element element:elementsByTag){
+					if("location".equals(element.attr("name"))){
+						script=element.attr("content");
+						break;
+					}
+				}
+			}//province=海南;city=文昌;coord=110.778151528462,19.6880616289976
+			String longitude ="";
+			String latitude = "";
+			String provice="";
+			String city="";
+			if(!"".equals(script)){
+				String	scriptss=script.split(";coord=")[1];
+				//景点经度
+				longitude = scriptss.split(",")[0];
+				sceInfo.setLongitude(longitude);
+				//景点纬度
+				latitude = scriptss.split(",")[1];
+				sceInfo.setLatitude(latitude);
+				//四级地址信息
+				String scriptssAdress=script.split(";coord=")[0];
+				String provinceAdress=scriptssAdress.split(";")[0];
+				String cityAdress=scriptssAdress.split(";")[1];
+				provice=provinceAdress.substring(provinceAdress.indexOf("province=")+9, provinceAdress.length());
+				city=cityAdress.substring(cityAdress.indexOf("city=")+5, cityAdress.length());
+				System.out.println(city);
+			}
+			//设置四级地址表
+			Addressinfo addressinfo=new Addressinfo();
+			String addressId=UUID.randomUUID().toString();
+			addressinfo.setId(addressId);
+			addressinfo.setInfoid(uuid);
+			addressinfo.setType(1);
+			addressinfo.setCountry("中国");;
+			addressinfo.setProvince(provice);
+			addressinfo.setCity(city);
+			addressinfo.setDetailaddress(address);
+			addressinfo.setCreatedate(new Date());
+			addressinfo.setCreator("赵乐");
+			addressinfo.setCreatorid("15736708180");
+			redisService.insertAndGetId(addressinfo);
+			Elements elements = document.select("div.s_sight_infor>ul.s_sight_in_list>li");
+			if(!elements.isEmpty()){
+				for(Element element:elements){
+					String key=element.select("span.s_sight_classic").text().trim();
+					String value=element.select("span.s_sight_con").text().trim();
+					switch (key) {
+					case "类        型：":
+						//景点类型
+						Elements elementsType = document.select("div.s_sight_infor>ul.s_sight_in_list>li>span.s_sight_con>a");
+						String type="";
+						if(elementsType.size()>0){
+							for(int i=0;i<elementsType.size()-1;i++){
+								System.out.println(elementsType.get(i).text());
+								type=type+elementsType.get(i).text();
+							}
+						}
+						System.out.println(type+"----景点类型");
+						sceInfo.setType(type);
+						break;
+					case "等        级：":
+						//景点星级
+						String starLevel=value;
+						sceInfo.setStarlevel(starLevel);
+						break;
+					case "游玩时间：":
+						//建议游玩时间描述
+						String adviceTime =value;
+						sceInfo.setAdvicetime(adviceTime);
+						break;
+					default:
+						break;
+					}
+
+				}
+			}
+			//景点开放时间描述
+			String openTime="";
+			//其他信息，存其他有用信息  --门票信息
+			String otherInformation="";
+			Elements elementsOpenTime = document.select("div.s_sight_infor>dl.s_sight_in_list");
+			if(elementsOpenTime.size()>0){
+				for(Element element:elementsOpenTime){
+					String left = element.select("dt").isEmpty()?"":element.select("dt").text();
+					String right =element.select("dd").isEmpty()?"":element.select("dd").text();
+					switch(left){
+					case "开放时间：":
+						openTime=right;
+						break;
+					case "门票信息：":
+						otherInformation=right;
+						break;
+					default:
+						break;
+					}
+				}
+			}
+			//景点开放时间描述
+			sceInfo.setOpentime(openTime);
+			//其他信息，存其他有用信息  --门票信息
+			sceInfo.setOtherinformation(otherInformation);
+			//景点评分，百分制
+			Elements elementGradeAndGradeNum = document.select("div.detailtop.cf.normalbox>ul.detailtop_r_info>li");
+			//Elements elementsGrade = document.select("div.detailtop.cf.normalbox>ul.detailtop_r_info>li>span.score>b");
+			Elements elementsGrade = elementGradeAndGradeNum.select("span.score>b");
+			String grade="";
+			if(!elementsGrade.isEmpty()){
+				String text = elementsGrade.text().trim();
+				Double gra = Double.parseDouble(text);
+				grade=(gra*20)+"";
+			}
+			sceInfo.setGrade(grade);
+			//景点评分个数
+			//Elements elementsGradeNum = document.select("div.detailtop.cf.normalbox>ul.detailtop_r_info>li>span.pl_num>dfn#hrefyyDp>span.f_orange");
+			Elements elementsGradeNum = elementGradeAndGradeNum.select("span.pl_num>dfn#hrefyyDp>span.f_orange");
+			String gradeNum=elementsGradeNum.isEmpty()? "":elementsGradeNum.text();
+			sceInfo.setGradenum(gradeNum);
+			//获取点评的 poiId返回后，传入评论方法的参数
+			Elements elementspoiId = elementGradeAndGradeNum.select("span.pl_num>span.c_tipswrap>a.b_orange_m");
+			String poiIdhref=elementspoiId.isEmpty()?"":elementspoiId.attr("href");
+			// /dianping/edit/80273.html
+			String poiId="";
+			if(!"".equals(poiIdhref)){
+				poiId=poiIdhref.substring(poiIdhref.lastIndexOf("/")+1, poiIdhref.lastIndexOf("."));
+			}
+
+			//获取评论的总页码数
+			Elements elementspageNum = document.select("div.ttd_pager.cf>div.pager_v1>span>b");
+			String pageNum=elementspageNum.isEmpty()?"":elementspageNum.text();
+
+			//存入请求评论信息所需要的信息
+			stroke.setOtherinformation(poiId+","+districtId+","+districteName+","+pageNum+","+resourceId);
+			int totalComment=0;
+			if(StringUtils.isBlank(gradeNum)){
+				gradeNum="0";
+			}
+			totalComment=Integer.valueOf(gradeNum);
+			//下面的是获取app端的评论url
+			/*int page=totalComment>1000?2:(totalComment/500+1);
+			for(int i=1;i<=page;i++){
+				String commentUrl="https://m.ctrip.com/restapi/soa2/10491/json/GetCommentListAndHotTagList?_fxpcqlniredt=09031048111851431123";
+				String param="{\"CommentResultInfoEntity\":{\"BusinessId\":\""+poiId+"\",\"BusinessType\":11,\"PageIndex\":"+i+","
+						+ "\"PageSize\":500,\"StarType\":0,\"TouristType\":0,\"SortType\":3,\"ImageFilter\":false,"
+						+ "\"CommentTagId\":0,\"ChannelType\":7,\"VideoImageWidth\":700,\"VideoImageHeight\":392},"
+						+ "\"head\":{\"cver\":\"1.0\",\"lang\":\"01\",\"auth\":null,\"extension\":[{\"name\":\"protocal\","
+						+ "\"value\":\"http\"}]},\"contentType\":\"json\"}";
+				Params params = new Params();
+				params.setType(Param.CTRIP_STROKE_COMMENT);
+				params.setDataSource(Param.CTRIP);
+				params.setUrl(commentUrl);
+				params.setPostParams(param);
+				params.setUuid(uuid);
+				params.setHttpType(Param.POST);
+				StrokeSpiderStart.queue.add(MISSION_PARAMS, params);
+			}*/
+			//下面的是获取网页端的评论url，暂时不用
+			Integer page=totalComment%10==0?totalComment/10:totalComment/10+1;
+			page=page>100?100:page;
+			for(int i=1;i<=page;i++){
+				Params params = new Params();
+				String commentUrl="http://you.ctrip.com/destinationsite/TTDSecond/SharedView/AsynCommentView?"+
+				"poiID="+poiId+"&districtId="+districtId+"&districtEName="+districteName+
+						"&pagenow="+i+"&order=3.0&star=0.0&tourist=0.0&resourceId="+resourceId+"&resourcetype=2";
+				params.setType(Param.CTRIP_STROKE_COMMENT);
+				params.setDataSource(Param.CTRIP);
+				params.setUrl(commentUrl);
+				params.setUuid(uuid);
+				params.setHttpType(Param.GET);
+				StrokeSpiderStart.queue.add("mission-params", params);
+	
+			}
+
+			redisService.insertAndGetId(sceInfo);
+			// 景点图片
+			Elements elements2 = document.select("div#detailCarousel>div.carousel-inner>div.item>a");
+			if(!elements2.isEmpty()){
+				System.out.println("图片的数目"+elements2.size());
+				for(int i = 0; i < elements2.size(); i++){
+					Pictureinfo pictureinfo=new Pictureinfo();
+					String pictureurl=elements2.get(i).select("img").attr("src");
+					//Pictureurl="http://you.ctrip.com/"+Pictureurl;
+					System.out.println(pictureurl+"图片链接");
+					String pictureid = UUID.randomUUID().toString();
+					pictureinfo.setId(pictureid);
+					pictureinfo.setInfoid(uuid);
+					pictureinfo.setImgurl(pictureurl);
+					pictureinfo.setSort(i);
+					pictureinfo.setType(1);
+					pictureinfo.setDownload(0);
+					pictureinfo.setCreatedate(new Date());
+					pictureinfo.setCreator("赵乐");
+					pictureinfo.setCreatorid("15736708180");
+					redisService.insertAndGetId(pictureinfo);
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			StrokeSpiderStart.queue.add(StrokeSpiderStart.KEY_STROKE, stroke);
+		}
+	}
+
+	/**
+	 * @Description 获取携程景点想去人数和已去人数的url
+	 * @author 汤玉林
+	 * @date 2017年12月7日 上午11:42:40
+	 * @action ctripWantToURL
+	 * @param stroke
+	 */
+	private void ctripWantToURL(Stroke stroke){
+		String url=stroke.getUrl();
+		String uuId = stroke.getId();
+		String strokeInfo_pageId = url.substring(url.lastIndexOf("/")+1,url.lastIndexOf("."));
+		String wantToUrl="http://you.ctrip.com/Destinationsite/SharedComm/ShowGowant";
+		String param="Resource="+strokeInfo_pageId+"&pageType=Sight";
+
+		//加入消息队列
+		Params params=new Params();
+		params.setType(Param.CTRIP_STROKE_WANTANDBEEN);
+		params.setDataSource(Param.CTRIP);
+		params.setUrl(wantToUrl);
+		params.setUuid(uuId);
+		params.setHttpType(Param.POST);
+		params.setPostParams(param);
+		StrokeSpiderStart.queue.add(MISSION_PARAMS, params);
+
+	}
+	/**
+	 * 
+	 * @Description 驴妈妈解析景点详情
+	 * @author 赵乐
+	 * @date 2017年12月12日 上午10:56:56
+	 * @action lvmamaStrokeDetail
+	 * @param @param stroke
+	 * @param @param cityName
+	 * @return void
+	 */
+	public void lvmamaStrokeDetail(Stroke stroke) {
+		String uuid= stroke.getId();
+		//城市名称
+		String cityName = stroke.getCityName();
+		Document document=Jsoup.parse(stroke.getContent());
+		// 景点基础信息对象
+		Sceinfo sceinfo = new Sceinfo();
+		sceinfo.setId(uuid);
+		sceinfo.setUrl(stroke.getUrl());
+		sceinfo.setType("1");
+		sceinfo.setDatasource("Ctrip");
+		sceinfo.setCreatedate(new Date());
+		sceinfo.setCreator("赵乐");
+		sceinfo.setCreatorid("15736708180");
+		//存放四级地址表信息
+		Addressinfo addressinfo=new Addressinfo();
+		addressinfo.setInfoid(uuid);
+		try {
+			// 景点名称
+			Elements select = document.select("div.dz_state_model>div.vtop-name-box>h2");
+			String Name = select.isEmpty()?"":select.text();
+
+			Elements selectType = document.select("div.dz_state_model>div.vtop-name-box>i.vcomon-icon");
+			String type="";
+			if(!selectType.isEmpty()){
+				type=selectType.text();
+			}
+
+			// 景点地址
+			Elements elsementdt = document.select(
+					"div.vbottom-box.clearfix>div.vtop-comment-box.fl>dl.vtop-address-box.vtop-height.clearfix>dt");
+			String Address = "";
+			String OpenTime = "";
+			String AdviceTime = "";
+			String OtherInformation = "";
+			if (!elsementdt.isEmpty()) {
+				for (Element element : elsementdt) {
+					switch (element.text().trim()) {
+					case "地　　址：":
+						Address = element.nextElementSibling().text();
+						Address = Address.substring(0, Address.length() - 4);
+						break;
+						// 景点开放时间描述
+					case "开放时间：":
+						OpenTime = element.nextElementSibling().text();
+						System.out.println(OpenTime);
+						break;
+						// 建议游玩时间描述
+					case "游玩时间：":
+						AdviceTime = element.nextElementSibling().text().trim();
+						System.out.println(AdviceTime);
+						break;
+						// 其他信息，存其他有用信息
+					case "门票说明：":
+						OtherInformation = element.nextElementSibling().text();
+						System.out.println(OtherInformation);
+						break;
+					default:
+						break;
+					}
+				}
+			}
+			// 景点介绍(标签现在取不到了)
+			Elements select2 = document
+					.select("div#common>div.mainList.poi_heightbox.js-content>dl.poi_bordernone>dd>p>font");
+			String introduction = "";
+			if (!select2.isEmpty()) {
+				introduction = select2.text().trim();
+			}
+			String html = document.html();
+			Integer indexOfcoordinate = html.indexOf("coordinate:");
+			Integer indexOfzoom = html.indexOf("zoom:");
+			// 景点经度
+			String Longitude = "";
+			// 景点纬度
+			String Latitude = "";
+
+			if (indexOfcoordinate != -1 && indexOfzoom != -1) {
+
+				String coordinate = html.substring(indexOfcoordinate + 14, indexOfzoom - 15);
+				int lag = coordinate.indexOf("lng: ");
+				int lat = coordinate.indexOf(", lat: ");
+				Longitude = coordinate.substring(lag + 6, lat - 1);
+				Latitude = coordinate.substring(lat + 8, coordinate.length() - 2);
+			}
+			System.out.println("经纬度" + Longitude + Latitude);
+			// 景点参考价格
+			String ReferPrice = "";
+			Elements elements = document.select("div.dz_state_model>div.vtop-name-box>span.price-box.fr>em.big-price");
+			if (elements.size() > 0) {
+				ReferPrice = elements.get(0).text();
+			}
+			System.out.println(ReferPrice);
+			// 插入景点基础表信息
+			sceinfo.setName(Name);
+			sceinfo.setType(type);
+			sceinfo.setAddress(Address);
+			sceinfo.setIntroduction(introduction);
+			sceinfo.setLongitude(Longitude);
+			sceinfo.setLatitude(Latitude);
+			sceinfo.setAdvicetime(AdviceTime);
+			sceinfo.setOpentime(OpenTime);
+			sceinfo.setReferprice(ReferPrice);
+
+			redisService.insertAndGetId(sceinfo);
+			//添加四级表信息
+			Elements elementsAddressList = document.select("span.crumbs_nav>span.crumbs_list>a.crumbs_down_a");
+			if(elementsAddressList.size()!=0){
+				Integer index=null;
+				String uurid = UUID.randomUUID().toString();
+				if("上海".equals(cityName)){
+					for(int i=0;i<elementsAddressList.size();i++){
+						String adressstr=elementsAddressList.get(i).text();
+						if(adressstr.equals(cityName)){
+							index=i;
+							break;
+						}
+					}
+					addressinfo.setId(uurid);
+					addressinfo.setType(1);
+					addressinfo.setCountry(elementsAddressList.get(index-1).text());;
+					addressinfo.setProvince(cityName);
+					addressinfo.setCity(cityName);
+					addressinfo.setDetailaddress(Address);
+					addressinfo.setCreatedate(new Date());
+					addressinfo.setCreator("赵乐");
+					addressinfo.setCreatorid("15736708180");
+
+					redisService.insertAndGetId(addressinfo);
+
+				}if("海南".equals(cityName)){
+					for(int i=1;i<elementsAddressList.size();i++){
+						String adressstr=elementsAddressList.get(i).text();
+						if(adressstr.equals(cityName)){
+							index=i;
+							break;
+						}
+					}
+					addressinfo.setId(uurid);
+					addressinfo.setType(1);
+					addressinfo.setCountry(elementsAddressList.get(index-1).text());;
+					addressinfo.setProvince(cityName);
+					addressinfo.setCity(elementsAddressList.get(index+1).text());
+					addressinfo.setDetailaddress(Address);
+					addressinfo.setCreatedate(new Date());
+					addressinfo.setCreator("赵乐");
+					addressinfo.setCreatorid("15736708180");
+
+					redisService.insertAndGetId(addressinfo);
+					System.out.println(addressinfo+"放入四级地址表信息");
+				}
+			}
+
+			//获取图片信息
+			Elements elementImgUrls = document.select("div.dz_state_model>div.vbottom-box.clearfix>div.vtop-banner.fl>ul.vtop-banner-big-list>li>a>img");
+			System.out.println(elementImgUrls+"图片elementImgUrls");
+
+			if(!elementImgUrls.isEmpty()){
+				System.out.println(elementImgUrls.size()+"图片的个数");
+				for(int i=0;i<elementImgUrls.size();i++){
+					String imgurl=elementImgUrls.get(i).attr("src");
+					Pictureinfo pictureinfo=new Pictureinfo();
+					pictureinfo.setInfoid(uuid);
+					String uurid = UUID.randomUUID().toString();
+					pictureinfo.setId(uurid);
+					pictureinfo.setImgurl(imgurl);
+					pictureinfo.setType(1);
+					pictureinfo.setDownload(0);
+					pictureinfo.setSort(i);
+					pictureinfo.setCreatedate(new Date());
+					pictureinfo.setCreator("赵乐");
+					pictureinfo.setCreatorid("15736708180");
+
+					redisService.insertAndGetId(pictureinfo);
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			StrokeSpiderStart.queue.add(StrokeSpiderStart.KEY_STROKE, stroke);
+		}
+	}
+
+
+
+	/**
+	 * 
+	 * @Description 获取驴妈妈景点评论的url
+	 * @author 汤玉林
+	 * @date 2017年12月5日 下午4:43:52
+	 * @action lvmamaCommentURL
+	 * @param stroke
+	 */
+	private void lvmamaCommentURL(Stroke stroke){
+		String uuid=stroke.getId();
+		String url=stroke.getUrl();
+		String dest_id = url.substring(url.indexOf("-") + 1, url.lastIndexOf("."));
+		String commentUrl="http://www.lvmama.com/lvyou/ajax/ajaxGetComDataNew?d_id="+dest_id;
+
+		Params params=new Params();
+		params.setType(Param.LVMAMA_STROKE_COMMENTURL);
+		params.setDataSource(Param.LVMAMA);
+		params.setUrl(commentUrl);
+		params.setUuid(uuid);
+		params.setHttpType(Param.GET);
+		StrokeSpiderStart.queue.add(MISSION_PARAMS, params);
+	}
+
+	/**
+	 * 
+	 * @Description 获取驴妈妈景点想去和去过人数的url
+	 * @author 汤玉林
+	 * @date 2017年12月5日 下午4:44:14
+	 * @action lvmamaWantToURL
+	 * @param stroke
+	 */
+	private void lvmamaWantToURL(Stroke stroke){
+		String uuid = stroke.getId();
+		String url=stroke.getUrl();
+		String dest_id = url.substring(url.indexOf("-") + 1, url.lastIndexOf("."));
+		String wantoURL="http://www.lvmama.com/lvyou/ajax/AjaxGetCount?dest_type=VIEWSPOT&dest_id="+dest_id;
+
+		Params params=new Params();
+		params.setType(Param.LVMAMA_STROKE_WANTANDBEEN);
+		params.setDataSource(Param.LVMAMA);
+		params.setUrl(wantoURL);
+		params.setUuid(uuid);
+		params.setHttpType(Param.GET);
+		//加入消息队列
+		StrokeSpiderStart.queue.add(MISSION_PARAMS, params);
+	}
+
+
+}
